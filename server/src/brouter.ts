@@ -69,11 +69,12 @@ async function requestRoute(
   points: LatLng[],
   profileId: string,
   alternativeIdx: number,
+  extraParams: string,
 ): Promise<Response> {
   const lonlats = points.map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join('|');
   const url =
     `${config.brouterUrl}/brouter?lonlats=${encodeURIComponent(lonlats)}` +
-    `&profile=${encodeURIComponent(profileId)}&alternativeidx=${alternativeIdx}&format=geojson`;
+    `&profile=${encodeURIComponent(profileId)}&alternativeidx=${alternativeIdx}&format=geojson${extraParams}`;
   return fetch(url, { signal: AbortSignal.timeout(30_000) });
 }
 
@@ -82,12 +83,14 @@ export async function route(
   prefs: ProfileOptions,
   counter: CallCounter,
   alternativeIdx = 0,
+  /** 額外的 BRouter 參數，例如 `&polylines=...`（需自行編碼） */
+  extraParams = '',
 ): Promise<RawRoute> {
   let profileId = await getProfileId(prefs);
   counter.calls++;
   let res: Response;
   try {
-    res = await requestRoute(points, profileId, alternativeIdx);
+    res = await requestRoute(points, profileId, alternativeIdx, extraParams);
   } catch (err) {
     throw new RouterError(`無法連線到 BRouter（${config.brouterUrl}）：${(err as Error).message}`);
   }
@@ -97,7 +100,7 @@ export async function route(
     if (body.trim() === '' || /profile/i.test(body)) {
       profileId = await getProfileId(prefs, true);
       counter.calls++;
-      res = await requestRoute(points, profileId, alternativeIdx);
+      res = await requestRoute(points, profileId, alternativeIdx, extraParams);
     } else {
       throw new RouterError(body.trim(), res.status);
     }

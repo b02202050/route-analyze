@@ -23,9 +23,13 @@ assign uphillcost     = if avoid_climb then 30 else 0
 assign uphillcutoff   = 1.0
 
 # 偏好值 → 成本係數（係數 >= 1）
-assign f_sidewalk = if equal pref_sidewalk 1 then 1.0 else if equal pref_sidewalk -1 then 3.0 else 1.3
-assign f_cycleway = if equal pref_cycleway 1 then 1.0 else if equal pref_cycleway -1 then 3.0 else 1.3
-assign f_road     = if equal pref_road     1 then 1.0 else if equal pref_road     -1 then 3.0 else 1.3
+# 有任何路型設為「偏好」時，其他「不限」的路型成本明顯提高，讓路線優先走偏好路型
+assign any_preferred = or equal pref_sidewalk 1 or equal pref_cycleway 1 equal pref_road 1
+assign f_neutral  = if any_preferred then 1.8 else 1.3
+assign f_avoid    = 5.0
+assign f_sidewalk = if equal pref_sidewalk 1 then 1.0 else if equal pref_sidewalk -1 then f_avoid else f_neutral
+assign f_cycleway = if equal pref_cycleway 1 then 1.0 else if equal pref_cycleway -1 then f_avoid else f_neutral
+assign f_road     = if equal pref_road     1 then 1.0 else if equal pref_road     -1 then f_avoid else f_neutral
 
 ---context:way
 

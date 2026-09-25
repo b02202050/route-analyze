@@ -8,7 +8,7 @@ import type {
 } from '../../shared/types';
 import { route, type CallCounter, type RawRoute } from './brouter';
 import { config } from './config';
-import { distLL } from './geo';
+import { distLL, LocalProjection } from './geo';
 import { createLimiter } from './limiter';
 import { overlapRatio, routeMetrics } from './metrics';
 import { createRng, pickSign, randInt, randomSeed, uniform, type Rng } from './rng';
@@ -17,7 +17,7 @@ import { arcVias, perpendicularVia, type DetourShape } from './shapes';
 export class UserError extends Error {}
 
 type Metrics = ReturnType<typeof routeMetrics>;
-type RouteFn = (pts: LatLng[], alt?: number, avoidClimb?: boolean) => Promise<RawRoute>;
+type RouteFn = (pts: LatLng[], alt?: number, avoidClimb?: boolean, extraParams?: string) => Promise<RawRoute>;
 type Spec = { d: number; extra: number; shape: DetourShape }[];
 
 interface Candidate {
@@ -33,6 +33,9 @@ const MAX_ITERATIONS = 4;
 const TARGET_CANDIDATES = 8;
 const SHORTEST_RANDOM_CANDIDATES = 5;
 const SNAP_LIMIT_M = 300;
+/** 環狀路線：第一輪隨機、第二輪（錨定好路段＋變化）候選數 */
+const LOOP_ROUND1 = 8;
+const LOOP_ROUND2 = 8;
 /** 自訂爬升時，第二輪由最接近目標的幾條候選變化出來的數量 */
 const CLIMB_REFINE_PARENTS = 3;
 const CLIMB_REFINE_CANDIDATES = 8;
@@ -54,8 +57,8 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
   const pureLoop = req.loop && req.waypoints.length === 0;
 
   const climbTarget = req.climb?.targetM ?? null;
-  const doRoute: RouteFn = (pts, alt = 0, avoidClimb = false) =>
-    limit(() => route(pts, { ...req.prefs, avoidClimb }, counter, alt));
+  const doRoute: RouteFn = (pts, alt = 0, avoidClimb = false, extraParams = '') =>
+    limit(() => route(pts, { ...req.prefs, avoidClimb }, counter, alt, extraParams));
   const evaluate = (raw: RawRoute, kind: Candidate['kind']): Candidate => ({
     raw,
     m: routeMetrics(raw),
@@ -99,7 +102,9 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
       forced = [base!];
     }
   } else {
-    candidates = await targetCandidates(anchors, base, targetM, pureLoop, climbTarget, rng, doRoute, evaluate);
+    candidates = pureLoop
+      ? await freeLoopCandidates(req.start, targetM, req.prefs, climbTarget, rng, doRoute, evaluate)
+      : await targetCandidates(anchors, base, targetM, pureLoop, climbTarget, rng, doRoute, evaluate);
     if (candidates.length === 0) {
       throw new UserError('無法產生符合條件的路線，請換個起點或調整距離');
     }
@@ -111,6 +116,17 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
 
   candidates.sort((a, b) => a.score - b.score);
   const selected = selectDiverse(candidates, count, forced, exclude);
+  if (process.env.DEBUG_GEN) {
+    for (const c of candidates) {
+      const b = c.m.breakdown;
+      const tot = b.sidewalk + b.cycleway + b.road || 1;
+      console.log(
+        `${selected.includes(c) ? '*' : ' '} score ${c.score.toFixed(2)} len ${(c.m.distanceM / 1000).toFixed(2)} ` +
+          `sw ${((b.sidewalk / tot) * 100).toFixed(0)}% cy ${((b.cycleway / tot) * 100).toFixed(0)}% ` +
+          `sig ${c.m.signals.length} ovl ${(c.m.selfOverlap * 100).toFixed(0)}% asc ${c.m.ascentM.toFixed(0)}`,
+      );
+    }
+  }
   const offTarget = selected.filter((c) => Math.abs(c.lengthError ?? 0) > 0.08).length;
   if (offTarget > 0) {
     warnings.push(`附近路網有限，有 ${offTarget} 條路線與指定距離誤差超過 8%`);
@@ -365,10 +381,223 @@ function scoreTarget(c: Candidate, prefs: RoutePreferences, climbTarget: number 
     err * 12 +
     climbScore(c, climbTarget) +
     (err > 0.08 ? 20 : 0) + // 距離是主要條件，誤差過大的候選一律排在後面
-    c.m.selfOverlap * 3 +
+    c.m.selfOverlap * 5 +
     signalScore(c, prefs) +
     preferenceScore(c.m.breakdown, prefs)
   );
+}
+
+// ---------- 環狀路線（不限圓形） ----------
+
+/**
+ * 環狀路線 = 去程 + 回程：
+ * - 去程：起點 →（0～1 個途經點）→ 折返點。途經點越少，BRouter 越能依偏好自由選路。
+ * - 回程：折返點 → 起點，並在去程路徑上加「有權重的 nogo 線」，
+ *   沿著去程往回跑會一路被加成本，只交叉一下則成本很小 → 形狀自由、可交叉、盡量不折返。
+ * 長度用割線法調整折返點（與自由途經點）離起點的距離。
+ *
+ * 途經點：free = 以起點為中心的方位角（rad，北為 0、順時針）與相對半徑，長度調整時會一起縮放；
+ * fixed = 固定座標（落在偏好路段上的錨點），不縮放。最後一個途經點即折返點。
+ */
+type LoopVia = { kind: 'free'; bearing: number; radius: number } | { kind: 'fixed'; at: LatLng };
+type LoopSpec = LoopVia[];
+
+/** 回程避開去程時，每碰到一段去程路徑加的成本（約等於多跑的公尺數） */
+const RETURN_NOGO_WEIGHT = 500;
+/** 起點、折返點附近不加 nogo，否則回程無法離開／回到這兩點 */
+const RETURN_NOGO_TRIM_M = 150;
+const LOOP_MAX_ITERATIONS = 3;
+
+function mergeRoutes(a: RawRoute, b: RawRoute): RawRoute {
+  return {
+    coordinates: [...a.coordinates, ...b.coordinates.slice(1)],
+    trackLength: a.trackLength + b.trackLength,
+    messages: [...a.messages, ...b.messages],
+  };
+}
+
+/** 去程路徑 → BRouter polylines 參數（去掉兩端，最多約 400 點） */
+function nogoParam(coords: [number, number, number][]): string {
+  const cum: number[] = [0];
+  for (let i = 1; i < coords.length; i++) {
+    cum.push(cum[i - 1] + distLL({ lat: coords[i - 1][1], lng: coords[i - 1][0] }, { lat: coords[i][1], lng: coords[i][0] }));
+  }
+  const total = cum[cum.length - 1];
+  const inner = coords.filter((_, i) => cum[i] >= RETURN_NOGO_TRIM_M && cum[i] <= total - RETURN_NOGO_TRIM_M);
+  if (inner.length < 2) return '';
+  const stride = Math.max(1, Math.ceil(inner.length / 400));
+  const pts = inner.filter((_, i) => i % stride === 0 || i === inner.length - 1);
+  const list = pts.map((c) => `${c[0].toFixed(5)},${c[1].toFixed(5)}`).join(',');
+  return `&polylines=${encodeURIComponent(`${list},${RETURN_NOGO_WEIGHT}`)}`;
+}
+
+async function freeLoopCandidates(
+  start: LatLng,
+  targetM: number,
+  prefs: RoutePreferences,
+  climbTarget: number | null,
+  rng: Rng,
+  doRoute: RouteFn,
+  evaluate: (raw: RawRoute, kind: Candidate['kind']) => Candidate,
+): Promise<Candidate[]> {
+  const proj = new LocalProjection(start);
+  const deg = Math.PI / 180;
+
+  const viaPoints = (spec: LoopSpec, scale: number): LatLng[] =>
+    spec.map((v) =>
+      v.kind === 'fixed'
+        ? v.at
+        : proj.toLL(Math.sin(v.bearing) * v.radius * scale, Math.cos(v.bearing) * v.radius * scale),
+    );
+  const straightLen = (spec: LoopSpec, scale: number) => {
+    const p = [start, ...viaPoints(spec, scale), start];
+    let len = 0;
+    for (let i = 1; i < p.length; i++) len += distLL(p[i - 1], p[i]);
+    return len;
+  };
+  /** 找出使「直線多邊形周長 × 繞行係數 ≈ 目標長度」的縮放值 */
+  const initialScale = (spec: LoopSpec, factor: number) => {
+    let lo = 0;
+    let hi = targetM;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (straightLen(spec, mid) * factor < targetM) lo = mid;
+      else hi = mid;
+    }
+    return (lo + hi) / 2;
+  };
+
+  const randomSpec = (): LoopSpec => {
+    const turn = uniform(rng, 0, 2 * Math.PI);
+    const spec: LoopSpec = [];
+    if (rng() < 0.45) {
+      spec.push({ kind: 'free', bearing: turn + pickSign(rng) * uniform(rng, 35, 80) * deg, radius: uniform(rng, 0.5, 0.9) });
+    }
+    spec.push({ kind: 'free', bearing: turn, radius: 1 });
+    return spec;
+  };
+
+  const mutate = (spec: LoopSpec): LoopSpec =>
+    spec.map((v) =>
+      v.kind === 'fixed'
+        ? v
+        : {
+            kind: 'free',
+            bearing: v.bearing + uniform(rng, -0.45, 0.45),
+            radius: clamp(v.radius * uniform(rng, 0.85, 1.15), 0.3, 1.3),
+          },
+    );
+
+  const trip = async (spec: LoopSpec, scale: number, avoidClimb: boolean): Promise<RawRoute> => {
+    const vias = viaPoints(spec, scale);
+    const out = await doRoute([start, ...vias], 0, avoidClimb);
+    const back = await doRoute([vias[vias.length - 1], start], 0, avoidClimb, nogoParam(out.coordinates));
+    return mergeRoutes(out, back);
+  };
+
+  const runLoop = async (spec: LoopSpec, factor: number, avoidClimb: boolean) => {
+    let scale = initialScale(spec, factor);
+    const history: [number, number][] = spec.some((v) => v.kind === 'fixed') ? [] : [[0, 0]];
+    let best: { raw: RawRoute; err: number; scale: number } | null = null;
+    for (let it = 0; it < LOOP_MAX_ITERATIONS; it++) {
+      let raw: RawRoute;
+      try {
+        raw = await trip(spec, scale, avoidClimb);
+      } catch (err) {
+        if (!best) throw err;
+        break;
+      }
+      const len = raw.trackLength;
+      const err = Math.abs(len - targetM) / targetM;
+      if (!best || err < best.err) best = { raw, err, scale };
+      if (err <= TARGET_TOLERANCE) break;
+      history.push([scale, len]);
+      let next: number;
+      if (history.length >= 2) {
+        const [s1, y1] = history[history.length - 2];
+        const [s2, y2] = history[history.length - 1];
+        next = y2 !== y1 ? s2 + ((targetM - y2) * (s2 - s1)) / (y2 - y1) : s2 * (targetM / y2);
+      } else {
+        next = scale * (targetM / len);
+      }
+      if (!Number.isFinite(next) || next <= 0) next = scale * (targetM / len);
+      scale = clamp(next, 10, targetM);
+    }
+    if (!best) return null;
+    const c = evaluate(best.raw, 'random');
+    c.lengthError = (best.raw.trackLength - targetM) / targetM;
+    return { spec, c, factor: best.raw.trackLength / Math.max(1, straightLen(spec, best.scale)) };
+  };
+
+  const errors: unknown[] = [];
+  const runAll = async (specs: LoopSpec[], factor: number, avoidClimb: boolean) => {
+    const res = await Promise.all(
+      specs.map((s) =>
+        runLoop(s, factor, avoidClimb).catch((err) => {
+          errors.push(err);
+          return null;
+        }),
+      ),
+    );
+    return res.filter((r): r is NonNullable<typeof r> => r !== null);
+  };
+
+  // 第一輪：純隨機
+  const round1 = await runAll(Array.from({ length: LOOP_ROUND1 }, randomSpec), 1.5, false);
+  if (round1.length === 0) {
+    if (errors.length) throw errors[0];
+    return [];
+  }
+
+  // 從第一輪學到當地的繞行係數
+  const factors = round1.map((r) => r.factor).sort((a, b) => a - b);
+  const factor = clamp(factors[Math.floor(factors.length / 2)], 1.05, 3);
+  const score = (c: Candidate) => scoreTarget(c, prefs, climbTarget);
+  const ranked = [...round1].sort((a, b) => score(a.c) - score(b.c));
+
+  // 第二輪之一：去程錨定在偏好路段上（取表現較好的路線中，長度 ≥ 150 m 的偏好路段中點）
+  const preferred = (['sidewalk', 'cycleway', 'road'] as const).filter((k) => prefs[k] === 1);
+  const pool: LatLng[] = [];
+  if (preferred.length) {
+    for (const { c } of ranked.slice(0, 6)) {
+      for (const run of c.m.wayRuns) {
+        if (!preferred.includes(run.category as (typeof preferred)[number])) continue;
+        const seg = c.raw.coordinates.slice(run.from, run.to + 1);
+        let len = 0;
+        for (let i = 1; i < seg.length; i++) {
+          len += distLL({ lat: seg[i - 1][1], lng: seg[i - 1][0] }, { lat: seg[i][1], lng: seg[i][0] });
+        }
+        if (len < 150) continue;
+        const mid = seg[Math.floor(seg.length / 2)];
+        const at = { lat: mid[1], lng: mid[0] };
+        const d = distLL(start, at);
+        // 起點附近的不需要錨定；太遠的來回就超過目標長度
+        if (d > 200 && d * 2 * factor < targetM * 0.9) pool.push(at);
+      }
+    }
+  }
+  const anchoredSpecs: LoopSpec[] = [];
+  const nAnchored = pool.length ? Math.ceil(LOOP_ROUND2 / 2) : 0;
+  for (let i = 0; i < nAnchored; i++) {
+    const at = pool[randInt(rng, 0, pool.length - 1)];
+    const [x, y] = proj.toXY(at);
+    const bAnchor = Math.atan2(x, y);
+    anchoredSpecs.push([
+      { kind: 'fixed', at },
+      { kind: 'free', bearing: bAnchor + pickSign(rng) * uniform(rng, 20, 70) * deg, radius: 1 },
+    ]);
+  }
+
+  // 第二輪之二：由目前最好的幾條變化
+  const parents = ranked.slice(0, 3);
+  const mutatedSpecs = Array.from({ length: LOOP_ROUND2 - nAnchored }, (_, i) =>
+    mutate(parents[i % parents.length].spec),
+  );
+
+  const tooMuchClimb =
+    climbTarget !== null && Math.min(...round1.map((r) => r.c.m.ascentM)) > climbTarget * 1.25 + 5;
+  const round2 = await runAll([...anchoredSpecs, ...mutatedSpecs], factor, tooMuchClimb);
+  return [...round1, ...round2].map((r) => r.c);
 }
 
 // ---------- 共用評分 ----------
@@ -383,7 +612,7 @@ function climbScore(c: Candidate, climbTarget: number | null): number {
 function signalScore(c: Candidate, prefs: RoutePreferences): number {
   if (!prefs.avoidSignals) return 0;
   const km = Math.max(0.5, c.m.distanceM / 1000);
-  return (c.m.signals.length / km) * 0.35;
+  return c.m.signals.length / km;
 }
 
 function preferenceScore(b: Record<WayCategory, number>, prefs: RoutePreferences): number {
@@ -394,13 +623,13 @@ function preferenceScore(b: Record<WayCategory, number>, prefs: RoutePreferences
   let anyPreferred: boolean = false;
   for (const cat of cats) {
     const share = b[cat] / total;
-    if (prefs[cat] === -1) penalty += share * 1.5;
+    if (prefs[cat] === -1) penalty += share * 4;
     if (prefs[cat] === 1) {
       anyPreferred = true;
       preferredShare += share;
     }
   }
-  if (anyPreferred) penalty += (1 - preferredShare) * 0.8;
+  if (anyPreferred) penalty += (1 - preferredShare) * 3;
   return penalty;
 }
 
