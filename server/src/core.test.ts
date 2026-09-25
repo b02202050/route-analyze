@@ -6,6 +6,8 @@ import { createRng } from './rng';
 import { arcVias, solveArcAngle, type DetourShape } from './shapes';
 import type { RouteMessage } from './brouter';
 import { loadStoresFromOverpass, storesAlongRoute } from './stores';
+import { cleanTrack, findSpurs } from './importer';
+import { polylineLength } from './geo';
 
 const flatShape: DetourShape = {
   side: 1,
@@ -129,4 +131,28 @@ test('storesAlongRoute: 100 m 內、依沿路距離排序、排除蝦皮、辨�
   // 第一次經過時就記錄，不會因回程再經過而變成約 3.5 km 處
   assert.ok(s[0].alongM > 400 && s[0].alongM < 600, `alongM=${s[0].alongM}`);
   assert.ok(s[0].offsetM < 60);
+});
+
+test('cleanTrack: 去除 GPS 左右飄移，距離接近真實值', () => {
+  const rng = createRng(7);
+  // 直線 2 km，每 3 m 一點，左右飄移 ±8 m
+  const noisy: [number, number][] = [];
+  for (let i = 0; i <= 666; i++) {
+    noisy.push([121.3 + (i * 3) / 101000, 25 + ((rng() - 0.5) * 16) / 111000]);
+  }
+  const raw = polylineLength(noisy);
+  const cleaned = polylineLength(cleanTrack(noisy));
+  assert.ok(raw > 2600, `raw=${raw}`); // 飄移把距離灌水
+  assert.ok(Math.abs(cleaned - 2000) < 40, `cleaned=${cleaned}`);
+});
+
+test('findSpurs: 找出原路折返的 U 字段', () => {
+  const c = (x: number, y = 0): [number, number, number] => [121.3 + x * 0.0001, 25 + y * 0.0001, 0];
+  // 主線往東，在 x=3 往北岔出 2 格再原路回來，之後繼續往東
+  const coords = [c(0), c(1), c(2), c(3), c(3, 1), c(3, 2), c(3, 1), c(3), c(4), c(5)];
+  const spurs = findSpurs(coords);
+  assert.equal(spurs.length, 1);
+  assert.ok(Math.abs(spurs[0].apex.lat - (25 + 0.0002)) < 1e-9);
+  assert.ok(Math.abs(spurs[0].lengthM - 44.5) < 1, `len=${spurs[0].lengthM}`);
+  assert.equal(findSpurs([c(0), c(1), c(2), c(3)]).length, 0);
 });

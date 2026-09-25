@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GenerateRequest, LatLng, RouteResult } from '../../shared/types';
-import { generateRoutes } from './api';
+import { generateRoutes, importTrack } from './api';
 import ElevationChart from './components/ElevationChart';
 import MapView from './components/MapView';
 import OptionsPanel, { type Options } from './components/OptionsPanel';
@@ -9,8 +9,10 @@ import RouteCards from './components/RouteCards';
 import {
   CATEGORY_COLOR,
   fmtKm,
+  IMPORTED_COLOR,
   type LayerToggles,
   loadSetting,
+  parseGpx,
   parsePace,
   pointAtDistance,
   ROUTE_COLORS,
@@ -22,6 +24,13 @@ import {
 } from './lib';
 
 const ROUTE_COUNT = 3;
+
+function distMeters(a: number[], b: number[]) {
+  const r = Math.PI / 180;
+  const x = (b[0] - a[0]) * r * Math.cos(((a[1] + b[1]) / 2) * r);
+  const y = (b[1] - a[1]) * r;
+  return Math.hypot(x, y) * 6371008.8;
+}
 
 const DEFAULT_OPTIONS: Options = {
   loop: true,
@@ -74,14 +83,24 @@ export default function App() {
     if (options.loop && pickMode === 'end') setPickMode('waypoint');
   }, [options.loop, pickMode]);
 
-  const colors = useMemo(
-    () => Object.fromEntries(routes.map((r, i) => [r.id, ROUTE_COLORS[i % ROUTE_COLORS.length]])),
-    [routes],
-  );
-  const names = useMemo(
-    () => Object.fromEntries(routes.map((r, i) => [r.id, ROUTE_NAMES[i % ROUTE_NAMES.length]])),
-    [routes],
-  );
+  // 匯入的路線用深灰色、名稱 GPX1、GPX2…；規劃的路線依序 A、B、C
+  const [colors, names] = useMemo(() => {
+    const c: Record<string, string> = {};
+    const n: Record<string, string> = {};
+    let gi = 0;
+    let ii = 0;
+    for (const r of routes) {
+      if (r.kind === 'imported') {
+        c[r.id] = IMPORTED_COLOR;
+        n[r.id] = `GPX${++ii}`;
+      } else {
+        c[r.id] = ROUTE_COLORS[gi % ROUTE_COLORS.length];
+        n[r.id] = ROUTE_NAMES[gi % ROUTE_NAMES.length];
+        gi++;
+      }
+    }
+    return [c, n];
+  }, [routes]);
   const selected = routes.find((r) => r.id === selectedId) ?? null;
   const hoverPoint = useMemo(
     () => (selected && hoverDist !== null ? pointAtDistance(selected.coordinates, hoverDist) : null),
@@ -119,7 +138,9 @@ export default function App() {
     else setWaypoints((w) => w.map((x, i) => (i === index ? p : x)));
   };
 
-  const lockedRoutes = routes.filter((r) => locked.has(r.id));
+  // 匯入的路線不佔「3 條」名額，重新產生時一律保留
+  const importedRoutes = routes.filter((r) => r.kind === 'imported');
+  const lockedRoutes = routes.filter((r) => locked.has(r.id) && r.kind !== 'imported');
   const newCount = ROUTE_COUNT - lockedRoutes.length;
 
   const canGenerate =
@@ -150,7 +171,7 @@ export default function App() {
       const res = await generateRoutes(req);
       // 避免與鎖定路線的 id 衝突
       const fresh = res.routes.filter((r) => !locked.has(r.id));
-      const next = [...lockedRoutes, ...fresh];
+      const next = [...importedRoutes, ...lockedRoutes, ...fresh];
       setRoutes(next);
       setClimbTargets((prev) => {
         const t: Record<string, number> = {};
@@ -177,6 +198,55 @@ export default function App() {
       else n.add(id);
       return n;
     });
+
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+
+  const handleImport = async (file: File) => {
+    setImporting(true);
+    setError(null);
+    setWarnings([]);
+    try {
+      const { name, points, source } = parseGpx(await file.text(), file.name);
+      const res = await importTrack({ name, points, source });
+      setRoutes((rs) => [res.route, ...rs]);
+      setSelectedId(res.route.id);
+      setWarnings(res.warnings);
+      setInfo(
+        source === 'track'
+          ? `已匯入「${name}」：貼齊道路後 ${(res.route.distanceM / 1000).toFixed(2)} km`
+          : `已匯入「${name}」：${points.length} 個路線點，依道路連接後 ${(res.route.distanceM / 1000).toFixed(2)} km`,
+      );
+      setFitKey((k) => k + 1);
+    } catch (e) {
+      setError(`匯入失敗：${(e as Error).message}`);
+    } finally {
+      setImporting(false);
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const removeRoute = (id: string) => {
+    setRoutes((rs) => rs.filter((r) => r.id !== id));
+    if (selectedId === id) setSelectedId(routes.find((r) => r.id !== id)?.id ?? null);
+  };
+
+  /** 以匯入路線的起終點與距離作為規劃條件 */
+  const useAsConditions = (r: RouteResult) => {
+    const [first, last] = [r.coordinates[0], r.coordinates[r.coordinates.length - 1]];
+    const s: LatLng = { lng: first[0], lat: first[1], label: `${r.name ?? 'GPX'} 起點` };
+    const isLoop = distMeters(first, last) < 200;
+    setStart(s);
+    setEnd(isLoop ? null : { lng: last[0], lat: last[1], label: `${r.name ?? 'GPX'} 終點` });
+    setWaypoints([]);
+    setOptions((o) => ({
+      ...o,
+      loop: isLoop,
+      distanceMode: 'target',
+      km: Math.round(r.distanceM / 100) / 10,
+    }));
+    setPickMode('waypoint');
+  };
 
   const clearAll = () => {
     setStart(null);
@@ -224,6 +294,16 @@ export default function App() {
                 ? `重新產生${lockedRoutes.length ? `（保留 ${lockedRoutes.length} 條鎖定）` : ''}`
                 : '產生路線'}
           </button>
+          <button className="secondary" disabled={importing} onClick={() => fileRef.current?.click()}>
+            {importing ? '比對 GPX 中…' : '📂 匯入 GPX 分析'}
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".gpx,application/gpx+xml"
+            hidden
+            onChange={(e) => e.target.files?.[0] && handleImport(e.target.files[0])}
+          />
           {!start && <div className="hint">先在地圖上點選起點，或用搜尋／目前位置。</div>}
           {start && !options.loop && !end && <div className="hint">請設定終點，或勾選「環狀路線」。</div>}
           {newCount <= 0 && <div className="hint">三條路線都已鎖定，解除鎖定才能重新產生。</div>}
@@ -249,6 +329,8 @@ export default function App() {
               paceSec={parsePace(options.pace)}
               onSelect={setSelectedId}
               onToggleLock={toggleLock}
+              onRemove={removeRoute}
+              onUseAsConditions={useAsConditions}
             />
             {info && <div className="hint mono">{info}</div>}
           </section>

@@ -321,3 +321,25 @@ button.icon:hover:not(:disabled) { border-color: var(--border); color: var(--tex
 
 .store-popup { font-size: 13px; line-height: 1.5; }
 .store-popup strong { display: block; font-size: 14px; margin-bottom: 2px; }
+
+button.secondary {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px;
+  font-size: 14px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+button.secondary:hover:not(:disabled) { border-color: var(--muted); }
+
+.card-actions { margin-top: 8px; }
+.card-actions button {
+  font-size: 12.5px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 6px;
+}
+.card-actions button:hover { border-color: var(--muted); }

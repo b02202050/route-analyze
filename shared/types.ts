@@ -87,7 +87,9 @@ export interface RouteResult {
   selfOverlap: number;
   /** 與目標距離的誤差比例（僅指定距離模式） */
   lengthError?: number;
-  kind: 'shortest' | 'alternative' | 'random';
+  kind: 'shortest' | 'alternative' | 'random' | 'imported';
+  /** 匯入 GPX 的名稱 */
+  name?: string;
 }
 
 export interface GenerateResponse {
@@ -97,6 +99,19 @@ export interface GenerateResponse {
   routes: RouteResult[];
   warnings: string[];
   stats: { candidates: number; routerCalls: number; ms: number };
+}
+
+export interface ImportRequest {
+  name: string;
+  /** GPX 軌跡點 [lng, lat]（前端已先降到 ≤ 5000 點） */
+  points: [number, number][];
+  /** track = 實際紀錄（trkpt，點密、有 GPS 飄移）；route = 規劃路線（rtept，點稀疏） */
+  source: 'track' | 'route';
+}
+
+export interface ImportResponse {
+  route: RouteResult;
+  warnings: string[];
 }
 
 export interface GeocodeResult {

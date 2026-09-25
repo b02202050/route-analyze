@@ -2,11 +2,12 @@ import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { existsSync } from 'node:fs';
 import { z } from 'zod';
-import type { GenerateRequest } from '../../shared/types';
+import type { GenerateRequest, ImportRequest } from '../../shared/types';
 import { brouterCheck, RouterError } from './brouter';
 import { config } from './config';
 import { generateRoutes, UserError } from './generator';
 import { geocode } from './geocode';
+import { importTrack } from './importer';
 import { initStores, storesStatus } from './stores';
 
 const b = config.serviceBounds;
@@ -63,6 +64,34 @@ app.post('/api/routes', async (req, reply) => {
     if (err instanceof RouterError) {
       req.log.warn(err);
       return reply.code(502).send({ error: `路線引擎錯誤：${err.message}` });
+    }
+    throw err;
+  }
+});
+
+const importSchema = z.object({
+  name: z.string().max(200),
+  points: z
+    .array(z.tuple([z.number().min(b.minLng).max(b.maxLng), z.number().min(b.minLat).max(b.maxLat)]))
+    .min(2)
+    .max(5000),
+  source: z.enum(['track', 'route']),
+});
+
+app.post('/api/import', async (req, reply) => {
+  const parsed = importSchema.safeParse(req.body);
+  if (!parsed.success) {
+    const outOfBounds = parsed.error.issues.some((i) => i.code === 'too_small' || i.code === 'too_big');
+    return reply.code(400).send({
+      error: outOfBounds ? 'GPX 軌跡點太少、太多，或超出服務範圍（目前支援台灣本島）' : 'GPX 資料格式錯誤',
+    });
+  }
+  try {
+    return await importTrack(parsed.data as ImportRequest);
+  } catch (err) {
+    if (err instanceof RouterError) {
+      req.log.warn(err);
+      return reply.code(502).send({ error: `軌跡比對失敗：${err.message}` });
     }
     throw err;
   }

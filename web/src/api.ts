@@ -1,4 +1,10 @@
-import type { GenerateRequest, GenerateResponse, GeocodeResult } from '../../shared/types';
+import type {
+  GenerateRequest,
+  GenerateResponse,
+  GeocodeResult,
+  ImportRequest,
+  ImportResponse,
+} from '../../shared/types';
 
 async function handle<T>(res: Response): Promise<T> {
   const text = await res.text();
@@ -21,6 +27,15 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
     body: JSON.stringify(req),
   });
   return handle<GenerateResponse>(res);
+}
+
+export async function importTrack(req: ImportRequest): Promise<ImportResponse> {
+  const res = await fetch('/api/import', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  return handle<ImportResponse>(res);
 }
 
 export async function geocode(q: string): Promise<GeocodeResult[]> {

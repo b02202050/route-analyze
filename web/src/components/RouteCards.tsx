@@ -18,6 +18,8 @@ interface Props {
   paceSec: number | null;
   onSelect: (id: string) => void;
   onToggleLock: (id: string) => void;
+  onRemove: (id: string) => void;
+  onUseAsConditions: (r: RouteResult) => void;
 }
 
 const CATS: WayCategory[] = ['sidewalk', 'cycleway', 'road'];
@@ -50,8 +52,22 @@ export default function RouteCards(p: Props) {
             <div className="card-head">
               <span className="swatch" style={{ background: p.colors[r.id] }} />
               <strong>路線 {p.names[r.id]}</strong>
-              <span className="kind">{KIND_LABEL[r.kind]}</span>
+              <span className="kind" title={r.name}>
+                {r.kind === 'imported' ? r.name ?? KIND_LABEL.imported : KIND_LABEL[r.kind]}
+              </span>
               <span className="spacer" />
+              {r.kind === 'imported' ? (
+                <button
+                  className="icon"
+                  title="移除這條匯入的路線"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    p.onRemove(r.id);
+                  }}
+                >
+                  ✕
+                </button>
+              ) : (
               <button
                 className={`icon ${isLocked ? 'locked' : ''}`}
                 title={isLocked ? '取消鎖定' : '鎖定（重新產生時保留）'}
@@ -62,6 +78,7 @@ export default function RouteCards(p: Props) {
               >
                 {isLocked ? '🔒' : '🔓'}
               </button>
+              )}
               <button
                 className="icon"
                 title="下載 GPX"
@@ -134,6 +151,19 @@ export default function RouteCards(p: Props) {
                 </span>
               ))}
             </div>
+            {r.kind === 'imported' && (
+              <div className="card-actions">
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    p.onUseAsConditions(r);
+                  }}
+                  title="把起點、終點（或環狀）與距離設為規劃條件"
+                >
+                  使用此路線的起終點與距離規劃
+                </button>
+              </div>
+            )}
           </div>
         );
       })}

@@ -414,7 +414,7 @@ const RETURN_NOGO_WEIGHT = 500;
 const RETURN_NOGO_TRIM_M = 150;
 const LOOP_MAX_ITERATIONS = 3;
 
-function mergeRoutes(a: RawRoute, b: RawRoute): RawRoute {
+export function mergeRoutes(a: RawRoute, b: RawRoute): RawRoute {
   return {
     coordinates: [...a.coordinates, ...b.coordinates.slice(1)],
     trackLength: a.trackLength + b.trackLength,

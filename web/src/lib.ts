@@ -7,7 +7,54 @@ export const KIND_LABEL: Record<RouteResult['kind'], string> = {
   shortest: '最佳路徑',
   alternative: '替代路線',
   random: '隨機路線',
+  imported: '匯入 GPX',
 };
+
+export const IMPORTED_COLOR = '#374151';
+
+/**
+ * 解析 GPX（trk/trkpt，沒有則用 rte/rtept），回傳 [lng, lat] 陣列。
+ * 相鄰點距離 < 10 m 的略過，並限制最多 5000 點（上傳大小與比對時間）。
+ */
+export function parseGpx(
+  text: string,
+  fileName: string,
+): { name: string; points: [number, number][]; source: 'track' | 'route' } {
+  const doc = new DOMParser().parseFromString(text, 'application/xml');
+  if (doc.getElementsByTagName('parsererror').length) throw new Error('無法解析 GPX 檔（不是有效的 XML）');
+  let nodes = Array.from(doc.getElementsByTagNameNS('*', 'trkpt'));
+  let source: 'track' | 'route' = 'track';
+  if (nodes.length < 2) {
+    nodes = Array.from(doc.getElementsByTagNameNS('*', 'rtept'));
+    source = 'route';
+  }
+  if (nodes.length < 2) throw new Error('GPX 檔中沒有軌跡（trkpt）或路線（rtept）');
+
+  const raw: [number, number][] = [];
+  for (const n of nodes) {
+    const lat = Number(n.getAttribute('lat'));
+    const lng = Number(n.getAttribute('lon'));
+    if (Number.isFinite(lat) && Number.isFinite(lng)) raw.push([lng, lat]);
+  }
+  const thinned: [number, number][] = [raw[0]];
+  for (const p of raw.slice(1)) {
+    const prev = thinned[thinned.length - 1];
+    if (haversine(prev, p) >= 10) thinned.push(p);
+  }
+  const lastRaw = raw[raw.length - 1];
+  if (thinned[thinned.length - 1] !== lastRaw) thinned.push(lastRaw);
+  const stride = Math.ceil(thinned.length / 5000);
+  const points = stride > 1 ? thinned.filter((_, i) => i % stride === 0 || i === thinned.length - 1) : thinned;
+
+  // 只取 trk／rte／metadata 的「直接子元素」name，避免拿到航點或軌跡點的名稱
+  const childName = (el: Element | undefined) =>
+    el ? Array.from(el.children).find((c) => c.localName === 'name') : undefined;
+  const nameEl =
+    childName(doc.getElementsByTagNameNS('*', source === 'track' ? 'trk' : 'rte')[0]) ??
+    childName(doc.getElementsByTagNameNS('*', 'metadata')[0]);
+  const name = nameEl?.textContent?.trim() || fileName.replace(/\.gpx$/i, '');
+  return { name, points, source };
+}
 
 export const CATEGORY_LABEL = {
   sidewalk: '人行道／步道',
