@@ -1,7 +1,7 @@
 import maplibregl, { type GeoJSONSource, type Map as MLMap } from 'maplibre-gl';
 import { useEffect, useRef, useState } from 'react';
 import type { LatLng, RouteResult } from '../../../shared/types';
-import { CATEGORY_COLOR, SIGNAL_COLOR, type LayerToggles } from '../lib';
+import { CATEGORY_COLOR, SIGNAL_COLOR, STORE_COLOR, type LayerToggles } from '../lib';
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/liberty';
 const TAOYUAN_CENTER: [number, number] = [121.3, 24.99];
@@ -146,6 +146,21 @@ export default function MapView(props: Props) {
         },
       });
 
+      map.addSource('stores', { type: 'geojson', data: emptyFC() });
+      map.addLayer({
+        id: 'stores',
+        type: 'circle',
+        source: 'stores',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 12, 4, 16, 7],
+          'circle-color': ['get', 'color'],
+          'circle-stroke-color': '#fff',
+          'circle-stroke-width': 2,
+        },
+      });
+      map.on('mouseenter', 'stores', () => (map.getCanvas().style.cursor = 'pointer'));
+      map.on('mouseleave', 'stores', () => (map.getCanvas().style.cursor = ''));
+
       map.addSource('hover', { type: 'geojson', data: emptyFC() });
       map.addLayer({
         id: 'hover',
@@ -164,8 +179,28 @@ export default function MapView(props: Props) {
       setLoaded(true);
     });
 
+    const popup = new maplibregl.Popup({ closeButton: true, offset: 10, maxWidth: '260px' });
     map.on('click', (e) => {
       const p = propsRef.current;
+      // 點到便利商店 → 顯示資訊，不設定地點
+      const store = map.getLayer('stores') ? map.queryRenderedFeatures(e.point, { layers: ['stores'] })[0] : undefined;
+      if (store) {
+        const pr = store.properties as { name: string; alongM: number; offsetM: number; hours?: string };
+        const box = document.createElement('div');
+        box.className = 'store-popup';
+        const title = document.createElement('strong');
+        title.textContent = pr.name;
+        const info = document.createElement('div');
+        info.textContent = `路線約 ${(pr.alongM / 1000).toFixed(1)} km 處 · 距路線 ${pr.offsetM} m`;
+        box.append(title, info);
+        if (pr.hours) {
+          const hours = document.createElement('div');
+          hours.textContent = `營業時間：${pr.hours === '24/7' ? '24 小時' : pr.hours}`;
+          box.append(hours);
+        }
+        popup.setLngLat((store.geometry as GeoJSON.Point).coordinates as [number, number]).setDOMContent(box).addTo(map);
+        return;
+      }
       // 點到「未選取」的路線 → 切換選取；否則視為設定地點
       const hit = map.getLayer('routes-line')
         ? map.queryRenderedFeatures(e.point, { layers: ['routes-line'] })
@@ -239,6 +274,20 @@ export default function MapView(props: Props) {
             coordinates: selected!.coordinates.slice(run.from, run.to + 1).map((c) => [c[0], c[1]]),
           },
         })),
+    });
+    (map.getSource('stores') as GeoJSONSource).setData({
+      type: 'FeatureCollection',
+      features: (layers.stores ? (selected?.stores ?? []) : []).map((s) => ({
+        type: 'Feature',
+        properties: {
+          name: s.name,
+          color: STORE_COLOR[s.brand],
+          alongM: s.alongM,
+          offsetM: s.offsetM,
+          hours: s.openingHours ?? '',
+        },
+        geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+      })),
     });
     (map.getSource('signals') as GeoJSONSource).setData({
       type: 'FeatureCollection',

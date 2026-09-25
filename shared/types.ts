@@ -43,6 +43,21 @@ export interface WayRun {
   to: number;
 }
 
+export type StoreBrand = 'seven' | 'family' | 'hilife' | 'ok' | 'other';
+
+/** 路線附近的便利商店 */
+export interface NearbyStore {
+  name: string;
+  brand: StoreBrand;
+  lng: number;
+  lat: number;
+  /** 大約在路線第幾公尺處 */
+  alongM: number;
+  /** 距離路線（m） */
+  offsetM: number;
+  openingHours?: string;
+}
+
 export interface ElevationPoint {
   /** 累積距離（m） */
   d: number;
@@ -64,6 +79,8 @@ export interface RouteResult {
   signals: [number, number][];
   /** 各路型的距離（m） */
   breakdown: Record<WayCategory, number>;
+  /** 路線 100 m 內的便利商店，依沿路距離排序 */
+  stores: NearbyStore[];
   /** 路型分段：coordinates[from..to]（含兩端）屬於 category，相鄰同類已合併 */
   wayRuns: WayRun[];
   /** 路線自我重疊（折返）比例 0~1 */

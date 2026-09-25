@@ -6,6 +6,8 @@ interface Props {
   color: string;
   hoverDist: number | null;
   onHover: (d: number | null) => void;
+  /** 沿路標記（例如便利商店），d = 沿路距離 m */
+  markers?: { d: number; color: string; label: string }[];
 }
 
 const PAD = { l: 38, r: 16, t: 10, b: 22 };
@@ -17,7 +19,7 @@ function niceStep(range: number, target: number) {
   return (n < 1.5 ? 1 : n < 3 ? 2 : n < 7 ? 5 : 10) * pow;
 }
 
-export default function ElevationChart({ profile, color, hoverDist, onHover }: Props) {
+export default function ElevationChart({ profile, color, hoverDist, onHover, markers = [] }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [[W, H], setSize] = useState<[number, number]>([600, 130]);
 
@@ -97,6 +99,14 @@ export default function ElevationChart({ profile, color, hoverDist, onHover }: P
       ))}
       <path d={g.area} fill={color} opacity={0.18} />
       <path d={g.line} fill="none" stroke={color} strokeWidth={2} />
+      {markers.map((m, i) => (
+        <g key={i}>
+          <line x1={g.x(m.d)} x2={g.x(m.d)} y1={PAD.t} y2={H - PAD.b} stroke={m.color} strokeWidth={1} opacity={0.35} />
+          <circle cx={g.x(m.d)} cy={H - PAD.b} r={3.5} fill={m.color} stroke="#fff" strokeWidth={1.5}>
+            <title>{`${m.label}（${(m.d / 1000).toFixed(1)} km）`}</title>
+          </circle>
+        </g>
+      ))}
       {hover && (
         <g>
           <line x1={g.x(hover.d)} x2={g.x(hover.d)} y1={PAD.t} y2={H - PAD.b} className="cursor" />

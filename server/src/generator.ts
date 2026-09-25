@@ -13,6 +13,7 @@ import { createLimiter } from './limiter';
 import { overlapRatio, routeMetrics } from './metrics';
 import { createRng, pickSign, randInt, randomSeed, uniform, type Rng } from './rng';
 import { arcVias, perpendicularVia, type DetourShape } from './shapes';
+import { storesAlongRoute, storesStatus } from './stores';
 
 export class UserError extends Error {}
 
@@ -152,9 +153,14 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
     id: `${seed.toString(36)}-${i}`,
     coordinates: c.raw.coordinates,
     ...c.m,
+    stores: storesAlongRoute(c.raw.coordinates),
     lengthError: c.lengthError,
     kind: c.kind,
   }));
+
+  const st = storesStatus();
+  if (st.status === 'loading') warnings.push('便利商店資料下載中，稍後重新產生即可顯示');
+  else if (st.status === 'error') warnings.push('便利商店資料無法下載，目前不顯示便利商店');
 
   return {
     seed,

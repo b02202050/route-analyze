@@ -5,6 +5,7 @@ import { classifyWay, computeElevation, computeWayRuns, extractSignals, overlapR
 import { createRng } from './rng';
 import { arcVias, solveArcAngle, type DetourShape } from './shapes';
 import type { RouteMessage } from './brouter';
+import { loadStoresFromOverpass, storesAlongRoute } from './stores';
 
 const flatShape: DetourShape = {
   side: 1,
@@ -105,4 +106,27 @@ test('computeWayRuns: 依 message 位置切出路型區段並合併相鄰同類'
     { category: 'cycleway', from: 3, to: 5 },
     { category: 'road', from: 5, to: 6 },
   ]);
+});
+
+test('storesAlongRoute: 100 m 內、依沿路距離排序、排除蝦皮、辨識品牌、環狀只算第一次', () => {
+  // 往東 2 km 再原路折返
+  const out: [number, number, number][] = [];
+  for (let i = 0; i <= 200; i++) out.push([121.3 + i * 0.0001, 25, 0]);
+  const route = [...out, ...[...out].reverse()];
+  loadStoresFromOverpass({
+    elements: [
+      { type: 'node', lat: 25.0005, lon: 121.3150, tags: { name: '全家便利商店', brand: '全家便利商店', branch: '測試店' } },
+      { type: 'node', lat: 25.0003, lon: 121.3050, tags: { name: '7-Eleven', brand: '7-Eleven', opening_hours: '24/7' } },
+      { type: 'node', lat: 25.0100, lon: 121.3100, tags: { name: '萊爾富' } }, // 約 1.1 km 外
+      { type: 'node', lat: 25.0002, lon: 121.3100, tags: { name: '蝦皮店到店' } },
+      { type: 'way', center: { lat: 24.9996, lon: 121.3180 }, tags: { name: 'OK超商' } },
+    ],
+  });
+  const s = storesAlongRoute(route);
+  assert.deepEqual(s.map((x) => x.brand), ['seven', 'family', 'ok']);
+  assert.equal(s[1].name, '全家便利商店 測試店');
+  assert.equal(s[0].openingHours, '24/7');
+  // 第一次經過時就記錄，不會因回程再經過而變成約 3.5 km 處
+  assert.ok(s[0].alongM > 400 && s[0].alongM < 600, `alongM=${s[0].alongM}`);
+  assert.ok(s[0].offsetM < 60);
 });

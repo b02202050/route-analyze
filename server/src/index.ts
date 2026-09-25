@@ -7,6 +7,7 @@ import { brouterCheck, RouterError } from './brouter';
 import { config } from './config';
 import { generateRoutes, UserError } from './generator';
 import { geocode } from './geocode';
+import { initStores, storesStatus } from './stores';
 
 const b = config.serviceBounds;
 const latLng = z.object({
@@ -41,7 +42,7 @@ const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLi
 
 app.get('/api/health', async () => {
   const error = await brouterCheck();
-  return { ok: error === null, brouter: error ?? 'ok' };
+  return { ok: error === null, brouter: error ?? 'ok', stores: storesStatus() };
 });
 
 app.post('/api/routes', async (req, reply) => {
@@ -87,6 +88,8 @@ if (existsSync(config.webDist)) {
 }
 
 await app.listen({ port: config.port, host: config.host });
+// 背景載入便利商店資料，不阻擋啟動
+void initStores((msg) => app.log.info(msg));
 const brouterError = await brouterCheck();
 if (brouterError) app.log.error(`BRouter 自我檢查失敗（${config.brouterUrl}）：${brouterError}`);
 else app.log.info(`BRouter: ${config.brouterUrl}（測試路線規劃成功）`);

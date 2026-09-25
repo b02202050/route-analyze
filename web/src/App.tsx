@@ -17,6 +17,7 @@ import {
   ROUTE_NAMES,
   saveSetting,
   SIGNAL_COLOR,
+  STORE_COLOR,
   thinCoords,
 } from './lib';
 
@@ -45,6 +46,7 @@ export default function App() {
     signals: true,
     sidewalk: false,
     cycleway: false,
+    stores: true,
     ...loadSetting<Partial<LayerToggles>>('layers', {}),
   }));
 
@@ -281,6 +283,7 @@ export default function App() {
                 { key: 'signals', label: '紅綠燈', color: SIGNAL_COLOR, dot: true, value: `${selected.signals.length} 處` },
                 { key: 'sidewalk', label: '人行道／步道', color: CATEGORY_COLOR.sidewalk, dot: false, value: `${fmtKm(selected.breakdown.sidewalk)} km` },
                 { key: 'cycleway', label: '腳踏車道', color: CATEGORY_COLOR.cycleway, dot: false, value: `${fmtKm(selected.breakdown.cycleway)} km` },
+                { key: 'stores', label: '便利商店', color: STORE_COLOR.seven, dot: true, value: `${selected.stores.length} 間` },
               ] as const
             ).map((l) => (
               <label key={l.key} className="layer-row">
@@ -310,6 +313,11 @@ export default function App() {
               color={colors[selected.id]}
               hoverDist={hoverDist}
               onHover={setHoverDist}
+              markers={
+                layers.stores
+                  ? selected.stores.map((s) => ({ d: s.alongM, color: STORE_COLOR[s.brand], label: s.name }))
+                  : []
+              }
             />
           </div>
         )}

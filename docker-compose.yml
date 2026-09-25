@@ -13,6 +13,9 @@ services:
       - "8787:8787"
     environment:
       BROUTER_URL: http://brouter:17777
+    volumes:
+      # 便利商店資料快取（避免每次重建都重新下載）
+      - ./server/data:/app/server/data
     depends_on:
       - brouter
     restart: unless-stopped

@@ -22,6 +22,14 @@ interface Props {
 
 const CATS: WayCategory[] = ['sidewalk', 'cycleway', 'road'];
 
+/** 沿路最長一段沒有便利商店的距離（m），含起點到第一間、最後一間到終點 */
+function longestGap(r: RouteResult): number {
+  const marks = [0, ...r.stores.map((s) => s.alongM), r.distanceM];
+  let gap = 0;
+  for (let i = 1; i < marks.length; i++) gap = Math.max(gap, marks[i] - marks[i - 1]);
+  return gap;
+}
+
 const fmtDiff = (d: number) => (d > 0 ? `+${d}` : d < 0 ? `${d}` : '±0');
 
 export default function RouteCards(p: Props) {
@@ -101,6 +109,10 @@ export default function RouteCards(p: Props) {
                   目標爬升 {p.climbTargets[r.id]} m（{fmtDiff(Math.round(r.ascentM - p.climbTargets[r.id]))}）
                 </span>
               )}
+              <span>
+                便利商店 {r.stores.length} 間
+                {r.stores.length > 0 && `（最長 ${fmtKm(longestGap(r))} km 無補給）`}
+              </span>
               {r.selfOverlap > 0.15 && <span>重複路段 {Math.round(r.selfOverlap * 100)}%</span>}
             </div>
 

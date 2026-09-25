@@ -1,4 +1,4 @@
-import type { LatLng, RouteResult } from '../../shared/types';
+import type { LatLng, RouteResult, StoreBrand } from '../../shared/types';
 
 export const ROUTE_COLORS = ['#e8553d', '#2b7bd6', '#8b4fd8', '#159a6a', '#d18a00'];
 export const ROUTE_NAMES = ['A', 'B', 'C', 'D', 'E'];
@@ -23,11 +23,27 @@ export const CATEGORY_COLOR = {
 
 export const SIGNAL_COLOR = '#d93025';
 
+export const STORE_COLOR: Record<StoreBrand, string> = {
+  seven: '#f07b1a',
+  family: '#0aa0c8',
+  hilife: '#b5179e',
+  ok: '#e0a800',
+  other: '#6b7280',
+};
+export const STORE_BRAND_LABEL: Record<StoreBrand, string> = {
+  seven: '7-11',
+  family: '全家',
+  hilife: '萊爾富',
+  ok: 'OK',
+  other: '其他',
+};
+
 /** 地圖上可切換顯示的路線圖層 */
 export interface LayerToggles {
   signals: boolean;
   sidewalk: boolean;
   cycleway: boolean;
+  stores: boolean;
 }
 
 export const fmtKm = (m: number) => (m / 1000).toFixed(2);
@@ -94,9 +110,18 @@ export function downloadGpx(route: RouteResult, name: string) {
   const pts = route.coordinates
     .map(([lng, lat, ele]) => `      <trkpt lat="${lat.toFixed(6)}" lon="${lng.toFixed(6)}"><ele>${ele.toFixed(1)}</ele></trkpt>`)
     .join('\n');
+  // 路線附近的便利商店寫成航點（Garmin／COROS 等可在手錶上顯示）
+  const wpts = route.stores
+    .map(
+      (s) =>
+        `  <wpt lat="${s.lat.toFixed(6)}" lon="${s.lng.toFixed(6)}"><name>${esc(s.name)}</name>` +
+        `<desc>${(s.alongM / 1000).toFixed(1)} km 處</desc><sym>Convenience Store</sym><type>convenience</type></wpt>`,
+    )
+    .join('\n');
   const gpx = `<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="route-analyze" xmlns="http://www.topografix.com/GPX/1/1">
   <metadata><name>${esc(name)}</name><time>${new Date().toISOString()}</time></metadata>
+${wpts}
   <trk>
     <name>${esc(name)}</name>
     <type>running</type>
