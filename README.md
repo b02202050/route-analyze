@@ -1,0 +1,203 @@
+# 🏃 路跑路線規劃（桃園 / 台灣）
+
+設定起點、終點與經過點，一次產生 **3 條不同的路跑路線**。每次按「重新產生」都用新的隨機種子，產生不一樣的路線。
+
+- 起點、終點、經過點：點地圖、搜尋地名、使用目前位置都可以設定；標記可拖曳，經過點可調整順序
+- 環狀路線（跑回起點）
+- 路線長度：**指定公里數**（誤差目標 ±3%）或 **最短路徑**
+- **總爬升**：不限，或自訂大約的公尺數。會盡量接近目標，但不保證剛好；受當地地形限制達不到時會顯示警告
+- **盡量避開紅綠燈**：路線引擎對每個號誌路口加上成本，實測同一段路的號誌數約減半
+- 路型偏好：人行道／步道、腳踏車道、一般馬路，各自可設 **偏好／不限／避開**
+- 每條路線顯示：地圖路線、總水平距離、總爬升、總下降、高度剖面圖（滑鼠移上去，地圖會標出對應位置）、紅綠燈數量與位置、路型比例、依配速估算的完成時間
+- **路線圖層開關**：地圖左上角可勾選在目前路線上標示「紅綠燈」「人行道／步道」「腳踏車道」，並顯示各自的數量或公里數（設定會記住）
+- **鎖定**喜歡的路線，重新產生時只換掉其他幾條
+- **GPX 匯出**，可匯入 Garmin、COROS、Strava 等
+
+## 架構
+
+```
+瀏覽器 (React + MapLibre)
+   │  /api/*
+   ▼
+API server (Node.js + Fastify)  ──►  BRouter（自架，Docker）  ← 台灣路網 + 高度資料（rd5）
+   │  路線產生演算法、爬升計算、評分挑選
+   └──►  Nominatim（只有按「搜尋」時才呼叫）
+
+底圖：OpenFreeMap 向量圖磚（免 key、不限量）
+```
+
+| 資源 | 用途 | 額度 |
+|---|---|---|
+| **BRouter（自架）** | 路徑規劃、高度、號誌節點 | 沒有外部限制，只看本機效能 |
+| OpenFreeMap | 地圖底圖 | 免 key，沒有公告的上限 |
+| Nominatim | 地名搜尋 | 每秒 1 次（server 已節流並快取） |
+
+產生一次路線大約需要 10～30 次路徑運算，全部在本機 BRouter 完成，通常 1～3 秒內回應。
+
+## 快速開始（Docker，建議）
+
+需要：已安裝 Docker 的 WSL（Docker Desktop 的 WSL integration 或 docker engine 都可以）。
+
+```bash
+cd route_analyze
+docker compose up -d --build
+```
+
+- 第一次啟動會自動下載台灣路網資料（`E120_N20.rd5`、`E120_N25.rd5`，約 35 MB），存在 `brouter/segments/`
+- 完成後用瀏覽器開啟 **http://localhost:8787**
+- 看 log：`docker compose logs -f`
+- 停止：`docker compose down`
+
+## 開發模式（前後端熱更新）
+
+需要：Node.js 20 以上（建議 22）。
+
+```bash
+# 1. 只啟動 BRouter
+docker compose up -d brouter
+
+# 2. 安裝套件（第一次）
+npm install
+
+# 3. 同時啟動 API（:8787）與前端（:5173）
+npm run dev
+```
+
+用瀏覽器開啟 **http://localhost:5173**。Vite 會把 `/api` 轉到 8787。
+
+其他指令：
+
+```bash
+npm test            # 後端單元測試（弧線幾何、爬升計算、號誌合併、重疊率…）
+npm run typecheck   # 前後端型別檢查
+npm run build       # 建置前端到 web/dist
+npm start           # 正式模式：由 API server 同時提供前端（http://localhost:8787）
+```
+
+## 使用方式
+
+1. **設定起點**：直接點地圖、在搜尋框輸入地名後按「起點」，或按 ◎ 使用目前位置。
+2. 點地圖時，模式會自動依序切換「起點 → 終點 → 經過點」；左上角會顯示目前的模式，也可以手動切換。
+3. 勾選 **環狀路線** 就不需要終點。
+4. 選擇 **指定距離（km）** 或 **最短路徑**，再設定紅綠燈與路型偏好。
+5. 按 **產生路線**。點卡片或地圖上的路線可以切換要查看哪一條。
+6. 不滿意就按 **重新產生**。想保留的路線先按 🔓 鎖定。
+
+## 設定（環境變數）
+
+| 變數 | 預設 | 說明 |
+|---|---|---|
+| `PORT` | `8787` | API server port |
+| `BROUTER_URL` | `http://localhost:17777` | BRouter 位址（docker compose 內為 `http://brouter:17777`） |
+| `ROUTER_CONCURRENCY` | `4` | 同時送往 BRouter 的請求數 |
+| `NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | 地名搜尋服務 |
+| `USER_AGENT` | `route-analyze/0.1 …` | Nominatim 要求提供的識別 |
+
+BRouter 容器：`JAVA_OPTS`（預設 `-Xmx1g`）、`MAX_THREADS`（預設 4）、`SEGMENTS`（要下載的分區）。
+
+## 擴展到全台灣
+
+路網資料的兩個分區本來就涵蓋全台灣，API 也接受台灣本島範圍內的座標，所以**現在就可以在台灣任何地方使用**。跟「桃園」有關的只有兩個預設值：
+
+- 地圖初始中心：`web/src/components/MapView.tsx` 的 `TAOYUAN_CENTER`
+- 地名搜尋的優先範圍：`server/src/config.ts` 的 `geocodeViewbox`（只影響排序，不會限制搜尋結果）
+
+因為路徑運算全部在本機，擴展範圍不會碰到外部 API 的額度限制。
+
+## 更新路網資料
+
+brouter.de 每週更新 rd5 檔。要更新時：
+
+```bash
+rm brouter/segments/*.rd5
+docker compose restart brouter   # 啟動時會重新下載
+```
+
+## 演算法說明
+
+### 紅綠燈迴避
+
+`brouter/profiles/running.brf` 是 BRouter 的路跑 profile。每次請求時，server 依使用者的勾選替換參數，再上傳成一個暫時的 custom profile：
+
+- 節點帶有 `highway=traffic_signals` 或 `crossing=traffic_signals` 時，加上 `signal_penalty`（預設等同多跑 250 m）的成本。這是「盡量」避開，真的繞不開時還是會經過。
+- 顯示的紅綠燈數量取自 BRouter 回傳的節點 tag。同一個路口常有多個號誌節點，距離 35 m 內的會合併成一個路口計算。
+- 資料來源是 OpenStreetMap。桃園市區的號誌標記大致完整，郊區可能有缺漏。
+
+### 路型偏好
+
+| 選項 | 對應 OSM tag | 成本係數 |
+|---|---|---|
+| 人行道／步道 | `highway=footway/pedestrian/path/…`、道路上標有 `sidewalk=*` | 偏好 1.0／不限 1.3／避開 3.0 |
+| 腳踏車道 | `highway=cycleway`、`bicycle=designated`、`cycleway=track` | 同上 |
+| 一般馬路 | 其他沒有人行道的道路 | 同上 |
+
+另外，大馬路（trunk、primary、secondary）沒有人行道時會再加一點成本；高速公路禁止通行。
+
+### 指定距離，而且每次都不同
+
+1. 先算出經過所有使用者指定點的最短路徑，得到實際路線長度，以及路網繞行係數（實際路線長 ÷ 直線距離）。
+2. 多出的距離（目標 − 最短）隨機分配給各路段。每條候選路線都隨機決定這些參數：
+   - 往路段的哪一側繞
+   - 途經點數量
+   - 位置抖動
+   - 環狀路線的方位角
+3. 途經點放在「通過 A、B 兩點、弧長等於目標長度的圓弧」上。A、B 重合時（純環狀路線），就放在通過起點、周長等於目標長度的圓上。
+4. 用**割線法**縮放繞路幅度，最多 4 次，讓實際長度收斂到目標 ±3% 內。
+5. 平行產生 8 個候選，評分依據：
+   - 長度誤差
+   - 折返比例
+   - 每公里紅綠燈數
+   - 路型偏好
+6. 依分數**挑出彼此重疊率低**的 3 條。鎖定的路線也會列入比較，所以新路線會刻意避開它們。
+
+每次請求都用 `crypto.getRandomValues` 產生新種子。種子會顯示在結果下方，方便除錯。
+
+### 自訂總爬升
+
+目標是「大概符合」，距離仍然是主要條件：
+
+1. 第一輪照常產生 8 個候選。
+2. 從中挑出爬升最接近目標的 3 條，微調形狀（方位角、往哪一側繞、途經點位置），再產生 8 個候選。這樣會往地形較合適的方向探索。
+3. 如果第一輪全部都**爬太多**，第二輪會改用「減少爬升」的 profile（`avoid_climb`：坡度超過 1% 的上下坡都加成本）。BRouter 只能懲罰爬坡、不能鼓勵爬坡，所以要更多爬升時只能靠第 2 步的形狀探索。
+4. 評分加入爬升誤差項，但距離誤差超過 8% 的候選一律排在後面。
+5. 最接近的路線仍與目標相差超過 30%（且超過 15 m）時會顯示警告。例如在平坦的桃園市區要求 200 m，或在龜山要求很低的爬升。
+
+實測（10 km 環狀）：中壢目標 60 m，得到 60／57／59 m；龜山目標 150 m，得到 155／167／159 m。
+
+### 爬升／下降
+
+直接累加 DEM（SRTM）高度會因雜訊高估總爬升。因此會先每 20 m 重新取樣、做移動平均，再加上 2 m 的遲滯門檻後才累加。
+
+## 專案結構
+
+```
+route_analyze/
+├─ docker-compose.yml        # brouter + app
+├─ Dockerfile                # app（API + 前端）
+├─ brouter/
+│  ├─ Dockerfile, entrypoint.sh
+│  ├─ profiles/running.brf   # 路跑 profile 樣板
+│  └─ segments/              # 路網資料（自動下載，不進版控）
+├─ shared/types.ts           # 前後端共用型別
+├─ server/src/
+│  ├─ index.ts               # Fastify API：POST /api/routes、GET /api/geocode、GET /api/health
+│  ├─ generator.ts           # 候選路線產生、迭代、評分、多樣性挑選
+│  ├─ shapes.ts              # 圓弧／繞圈途經點幾何
+│  ├─ metrics.ts             # 爬升、號誌、路型比例、重疊率
+│  ├─ brouter.ts, profile.ts # BRouter client 與 profile 參數化
+│  └─ geocode.ts             # Nominatim 代理（節流 + 快取）
+└─ web/src/
+   ├─ App.tsx
+   └─ components/            # MapView、PointsPanel、OptionsPanel、RouteCards、ElevationChart
+```
+
+## 疑難排解
+
+- **先做健康檢查**：開啟 http://localhost:8787/api/health，會實際規劃一段測試路線。`"brouter":"ok"` 代表正常，否則會顯示 BRouter 的錯誤訊息。
+- **`datafile E120_N20.rd5 not found`**：路網資料沒有下載成功。確認 `brouter/segments/` 裡有兩個 `.rd5` 檔（約 22 MB 與 12 MB），然後執行 `docker compose restart brouter`。
+- **「無法連線到 BRouter」**：確認 `docker compose ps` 中 brouter 是 running 狀態。第一次啟動要先等路網資料下載完（看 `docker compose logs brouter`）。開發模式下，API 預設連 `http://localhost:17777`。
+- **地圖一片空白**：底圖來自 OpenFreeMap，需要網路連線。
+- **「起點附近 300 公尺內找不到可通行的道路」**：點到海上、河中或沒有道路的山區了，換個位置再試。
+- **山區或海邊的路線有很多折返**：當地路網稀疏，卡片會顯示「重複路段」比例，並附上警告。
+- **開發模式改了程式碼卻沒更新**：專案放在 `/mnt/c/...`（Windows 磁碟、OneDrive）時，WSL 收不到檔案變更事件。前端已自動改用輪詢；後端（`tsx watch`）若沒有自動重啟，請手動 Ctrl+C 後再執行 `npm run dev`。想要最順的開發體驗，可以把專案放到 WSL 自己的檔案系統（例如 `~/code/route_analyze`）。
+- **port 被占用**：修改 `docker-compose.yml` 的 `ports`，或在開發模式設定 `PORT`。

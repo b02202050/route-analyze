@@ -1,0 +1,130 @@
+import type { RouteResult, WayCategory } from '../../../shared/types';
+import {
+  CATEGORY_COLOR,
+  CATEGORY_LABEL,
+  downloadGpx,
+  fmtDuration,
+  fmtKm,
+  KIND_LABEL,
+} from '../lib';
+
+interface Props {
+  routes: RouteResult[];
+  colors: Record<string, string>;
+  names: Record<string, string>;
+  selectedId: string | null;
+  locked: Set<string>;
+  climbTargets: Record<string, number>;
+  paceSec: number | null;
+  onSelect: (id: string) => void;
+  onToggleLock: (id: string) => void;
+}
+
+const CATS: WayCategory[] = ['sidewalk', 'cycleway', 'road'];
+
+const fmtDiff = (d: number) => (d > 0 ? `+${d}` : d < 0 ? `${d}` : '±0');
+
+export default function RouteCards(p: Props) {
+  return (
+    <div className="route-cards">
+      {p.routes.map((r) => {
+        const total = CATS.reduce((s, c) => s + r.breakdown[c], 0) || 1;
+        const selected = r.id === p.selectedId;
+        const isLocked = p.locked.has(r.id);
+        const km = r.distanceM / 1000;
+        return (
+          <div
+            key={r.id}
+            className={`route-card ${selected ? 'selected' : ''}`}
+            style={{ borderColor: selected ? p.colors[r.id] : undefined }}
+            onClick={() => p.onSelect(r.id)}
+          >
+            <div className="card-head">
+              <span className="swatch" style={{ background: p.colors[r.id] }} />
+              <strong>路線 {p.names[r.id]}</strong>
+              <span className="kind">{KIND_LABEL[r.kind]}</span>
+              <span className="spacer" />
+              <button
+                className={`icon ${isLocked ? 'locked' : ''}`}
+                title={isLocked ? '取消鎖定' : '鎖定（重新產生時保留）'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  p.onToggleLock(r.id);
+                }}
+              >
+                {isLocked ? '🔒' : '🔓'}
+              </button>
+              <button
+                className="icon"
+                title="下載 GPX"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadGpx(r, `路跑路線${p.names[r.id]}-${km.toFixed(1)}km`);
+                }}
+              >
+                GPX
+              </button>
+            </div>
+
+            <div className="stats">
+              <div>
+                <span className="stat-value">{fmtKm(r.distanceM)}</span>
+                <span className="stat-label">距離 km</span>
+              </div>
+              <div>
+                <span className="stat-value">↗ {Math.round(r.ascentM)}</span>
+                <span className="stat-label">總爬升 m</span>
+              </div>
+              <div>
+                <span className="stat-value">↘ {Math.round(r.descentM)}</span>
+                <span className="stat-label">總下降 m</span>
+              </div>
+              <div>
+                <span className="stat-value">🚦 {r.signals.length}</span>
+                <span className="stat-label">紅綠燈</span>
+              </div>
+            </div>
+
+            <div className="meta">
+              {p.paceSec && <span>預估 {fmtDuration(km * p.paceSec)}</span>}
+              <span>
+                高度 {Math.round(r.minEleM)}–{Math.round(r.maxEleM)} m
+              </span>
+              {r.lengthError !== undefined && (
+                <span>
+                  誤差 {r.lengthError >= 0 ? '+' : ''}
+                  {(r.lengthError * 100).toFixed(1)}%
+                </span>
+              )}
+              {p.climbTargets[r.id] !== undefined && (
+                <span>
+                  目標爬升 {p.climbTargets[r.id]} m（{fmtDiff(Math.round(r.ascentM - p.climbTargets[r.id]))}）
+                </span>
+              )}
+              {r.selfOverlap > 0.15 && <span>重複路段 {Math.round(r.selfOverlap * 100)}%</span>}
+            </div>
+
+            <div className="breakdown" title="路型比例">
+              {CATS.map((c) =>
+                r.breakdown[c] > 0 ? (
+                  <span
+                    key={c}
+                    style={{ width: `${(r.breakdown[c] / total) * 100}%`, background: CATEGORY_COLOR[c] }}
+                  />
+                ) : null,
+              )}
+            </div>
+            <div className="breakdown-legend">
+              {CATS.map((c) => (
+                <span key={c}>
+                  <i style={{ background: CATEGORY_COLOR[c] }} />
+                  {CATEGORY_LABEL[c]} {Math.round((r.breakdown[c] / total) * 100)}%
+                </span>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

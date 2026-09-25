@@ -1,0 +1,8 @@
+node_modules/
+dist/
+brouter/segments/*.rd5
+brouter/customprofiles/
+*.log
+.env
+cloudflared.log
+.ipynb_checkpoints/

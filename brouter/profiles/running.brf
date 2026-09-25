@@ -1,0 +1,107 @@
+# 路跑專用 BRouter profile（樣板）
+# server 會在每次請求時替換 global 區塊中的參數值後上傳成 custom profile。
+#
+# 路型偏好：1 = 偏好, 0 = 不限, -1 = 避開
+
+---context:global
+
+assign avoid_signals  = 1     # 1 = 盡量避開紅綠燈
+assign signal_penalty = 250   # 每個紅綠燈等同多跑幾公尺
+assign pref_sidewalk  = 0     # 人行道 / 步道
+assign pref_cycleway  = 0     # 腳踏車道
+assign pref_road      = 0     # 一般馬路（無人行道）
+assign avoid_steps    = 1     # 盡量避開階梯
+assign avoid_climb    = 0     # 1 = 盡量減少爬升／下降（server 依「自訂總爬升」自動決定）
+
+assign validForFoot   = 1
+assign turnInstructionMode = 0
+
+# 預設高度不影響路線成本；avoid_climb 時坡度超過 1% 的上下坡都加成本
+assign downhillcost   = if avoid_climb then 30 else 0
+assign downhillcutoff = 1.0
+assign uphillcost     = if avoid_climb then 30 else 0
+assign uphillcutoff   = 1.0
+
+# 偏好值 → 成本係數（係數 >= 1）
+assign f_sidewalk = if equal pref_sidewalk 1 then 1.0 else if equal pref_sidewalk -1 then 3.0 else 1.3
+assign f_cycleway = if equal pref_cycleway 1 then 1.0 else if equal pref_cycleway -1 then 3.0 else 1.3
+assign f_road     = if equal pref_road     1 then 1.0 else if equal pref_road     -1 then 3.0 else 1.3
+
+---context:way
+
+assign turncost = 0
+assign initialcost = switch route=ferry 100000 0
+
+assign defaultaccess =
+  switch access=
+    ( if motorroad=yes then false
+      else if highway=motorway|motorway_link then false
+      else true )
+    not access=private|no
+
+assign issidewalktagged = or sidewalk=left|right|both|yes
+                          or sidewalk:left=yes|separate
+                          or sidewalk:right=yes|separate sidewalk:both=yes|separate
+
+assign footaccess =
+  or issidewalktagged
+  or bicycle=dismount
+  switch foot=
+    defaultaccess
+    not foot=private|no|use_sidepath
+
+# ---- 路型分類 ----
+assign iscycle =
+  or highway=cycleway
+  or and highway=path|footway bicycle=designated
+     cycleway=track
+
+assign isfootway =
+  and not iscycle
+      highway=footway|pedestrian|path|steps|living_street|corridor|platform|track|bridleway
+
+assign isbigroad = highway=trunk|trunk_link|primary|primary_link|secondary|secondary_link
+
+assign category_factor =
+  if iscycle then f_cycleway
+  else if isfootway then f_sidewalk
+  else if issidewalktagged then f_sidewalk
+  else f_road
+
+# 大馬路再加一點（車多、路口大），有人行道則減輕
+assign bigroad_factor =
+  if highway=trunk|trunk_link then ( if issidewalktagged then 1.3 else 2.0 )
+  else if isbigroad then ( if issidewalktagged then 1.05 else 1.2 )
+  else 1.0
+
+assign steps_factor = if and highway=steps avoid_steps then 3.0 else 1.0
+
+assign costfactor =
+  if not footaccess then 100000
+  else if highway= then 100000
+  else if highway=motorway|motorway_link|proposed|abandoned|construction|raceway then 100000
+  else if route=ferry then 100000
+  else multiply category_factor multiply bigroad_factor steps_factor
+
+# 讓回傳的 WayTags 包含這些 tag，供路型比例統計
+assign dummyUsage = or surface= or lit= or footway= or cycleway= crossing=
+
+---context:node
+
+assign defaultaccess =
+  switch access=
+    1
+    switch access=private|no 0 1
+
+assign footaccess =
+  or bicycle=dismount
+  switch foot=
+    defaultaccess
+    switch foot=private|no 0 1
+
+assign issignal = or highway=traffic_signals crossing=traffic_signals
+
+assign initialcost =
+  if not footaccess then 1000000
+  else if and avoid_signals issignal then signal_penalty
+  else 0
