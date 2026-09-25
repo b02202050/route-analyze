@@ -160,7 +160,7 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
 
   const st = storesStatus();
   if (st.status === 'loading') warnings.push('便利商店資料下載中，稍後重新產生即可顯示');
-  else if (st.status === 'error') warnings.push('便利商店資料無法下載，目前不顯示便利商店');
+  else if (st.status === 'error') warnings.push('便利商店資料下載失敗，server 會自動重試；目前不顯示便利商店');
 
   return {
     seed,

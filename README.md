@@ -59,6 +59,20 @@ docker compose up -d --build
 - 看 log：`docker compose logs -f`
 - 停止：`docker compose down`
 
+### 映像檔大小與樹莓派
+
+兩個映像檔都以多階段建置（multi-stage build）瘦身，支援 x86_64 與 ARM64（樹莓派 4／5，需 64 位元系統）：
+
+| 映像檔 | 內容 | 大小（估計） |
+|---|---|---|
+| brouter | Alpine＋Java 21 JRE＋BRouter | 約 180 MB（原本約 280 MB） |
+| app | Alpine＋Node 22＋server 正式相依套件（41 MB）＋建置好的前端 | 約 210 MB（原本約 400 MB） |
+
+- **其他佔用：** 路網資料 34 MB、便利商店資料 6 MB。
+- **記憶體：** 實測 BRouter 高負載時峰值約 490 MB，包含規劃 42 km 環狀路線；API server 約 50 MB。2 GB 記憶體的樹莓派就夠用。
+- **建置快取：** 建置過程的暫存層（含完整開發套件）會留在 Docker 快取中。確認可以正常運作後，可以用 `docker builder prune -f` 釋放空間，大約數百 MB。
+- **舊資料夾：** 由舊版升級時，舊的 `server/data/` 資料夾已經不再使用，可以刪除。便利商店資料會重新下載到 volume。
+
 ## 開發模式（前後端熱更新）
 
 需要：Node.js 20 以上（建議 22）。
@@ -104,7 +118,7 @@ npm start           # 正式模式：由 API server 同時提供前端（http://
 | `NOMINATIM_URL` | `https://nominatim.openstreetmap.org` | 地名搜尋服務 |
 | `USER_AGENT` | `route-analyze/0.1 …` | Nominatim 要求提供的識別 |
 
-BRouter 容器：`JAVA_OPTS`（預設 `-Xmx1g`）、`MAX_THREADS`（預設 4）、`SEGMENTS`（要下載的分區）。
+BRouter 容器：`JAVA_OPTS`（預設 `-Xmx768m -XX:+UseSerialGC`）、`MAX_THREADS`（預設 4）、`SEGMENTS`（要下載的分區）。
 
 ## 擴展到全台灣
 
@@ -141,7 +155,7 @@ BRouter 容器：`JAVA_OPTS`（預設 `-Xmx1g`）、`MAX_THREADS`（預設 4）�
 ## 便利商店資料
 
 - **來源：** OpenStreetMap 的 `shop=convenience`，全台約 1.2 萬間；已排除沒有賣水的「蝦皮店到店」取貨點。
-- **下載與快取：** API server 啟動時在背景下載一次，存到 `server/data/convenience-stores.json`，大約 1 分鐘，不影響路線規劃。之後直接讀檔，超過 30 天才會自動更新。Docker 模式下，這個資料夾會掛載到容器外保存。
+- **下載與快取：** API server 啟動時在背景下載一次，存到 `server/data/convenience-stores.json`，大約 1 分鐘，不影響路線規劃。之後直接讀檔，超過 30 天才會自動更新。Docker 模式下，資料存在具名 volume `app-data`，重建映像檔也會保留。
 - **下載失敗時：** Overpass 公開伺服器偶爾會忙碌。失敗時會沿用舊檔；如果還沒有任何資料，畫面會顯示提示，重啟 server 就會再試一次。
 - **強制更新：** 刪除 `server/data/convenience-stores.json` 後重啟 server。
 

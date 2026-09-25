@@ -72,11 +72,18 @@ function setStores(list: Store[], when: string) {
   updatedAt = when;
 }
 
+/** fetch 失敗時真正原因在 err.cause（例如 ENOTFOUND、ECONNREFUSED、UND_ERR_CONNECT_TIMEOUT） */
+function describeError(err: unknown): string {
+  const e = err as Error & { cause?: { code?: string; message?: string } };
+  const cause = e?.cause?.code ?? e?.cause?.message;
+  return cause && !e.message.includes(cause) ? `${e.message}：${cause}` : String(e?.message ?? err);
+}
+
 async function download(): Promise<{ elements: OverpassElement[] }> {
   const b = config.storesBbox;
   const query =
     `[out:json][timeout:180];nwr["shop"="convenience"](${b.minLat},${b.minLng},${b.maxLat},${b.maxLng});out center tags;`;
-  let lastErr: unknown = null;
+  const errors: string[] = [];
   for (const url of config.overpassUrls) {
     try {
       const res = await fetch(url, {
@@ -91,13 +98,28 @@ async function download(): Promise<{ elements: OverpassElement[] }> {
       }
       return JSON.parse(text);
     } catch (err) {
-      lastErr = err;
+      errors.push(`${new URL(url).host}：${describeError(err)}`);
     }
   }
-  throw lastErr;
+  throw new Error(errors.join('；'));
 }
 
-/** 載入便利商店資料；不會丟出例外，失敗時記錄狀態 */
+// 自動重試：樹莓派開機時容器常比網路先就緒，第一次下載可能失敗
+const RETRY_MINUTES = [1, 5, 15, 30, 60];
+const DAILY_CHECK_MINUTES = 24 * 60;
+let failures = 0;
+let timer: NodeJS.Timeout | null = null;
+
+function schedule(log: (msg: string) => void, minutes: number) {
+  if (timer) clearTimeout(timer);
+  timer = setTimeout(() => void initStores(log), minutes * 60_000);
+  timer.unref();
+}
+
+/**
+ * 載入便利商店資料；不會丟出例外。
+ * 成功後每天檢查一次是否超過有效期（server 長期不重啟也會更新）；失敗則依序在 1、5、15、30、60 分鐘後重試。
+ */
 export async function initStores(log: (msg: string) => void): Promise<void> {
   const file = config.storesFile;
   let cached: { updatedAt: string; elements: OverpassElement[] } | null = null;
@@ -106,7 +128,11 @@ export async function initStores(log: (msg: string) => void): Promise<void> {
     const ageDays = (Date.now() - (await stat(file)).mtimeMs) / 86_400_000;
     loadStoresFromOverpass(cached!, cached!.updatedAt);
     log(`便利商店：已載入 ${stores.length} 筆（${cached!.updatedAt}）`);
-    if (ageDays < config.storesMaxAgeDays) return;
+    if (ageDays < config.storesMaxAgeDays) {
+      failures = 0;
+      schedule(log, DAILY_CHECK_MINUTES);
+      return;
+    }
     log('便利商店資料超過有效期，背景更新中…');
   } catch {
     log('便利商店：沒有快取資料，從 Overpass 下載全台資料中（約 1 分鐘）…');
@@ -117,11 +143,17 @@ export async function initStores(log: (msg: string) => void): Promise<void> {
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, JSON.stringify({ updatedAt: now, elements: json.elements }));
     loadStoresFromOverpass(json, now);
+    failures = 0;
+    lastError = null;
     log(`便利商店：下載完成 ${stores.length} 筆`);
+    schedule(log, DAILY_CHECK_MINUTES);
   } catch (err) {
     lastError = (err as Error).message;
     if (!cached) status = 'error';
-    log(`便利商店：下載失敗（${lastError}）${cached ? '，繼續使用舊資料' : '，可稍後重啟 server 再試'}`);
+    const delay = RETRY_MINUTES[Math.min(failures, RETRY_MINUTES.length - 1)];
+    failures++;
+    log(`便利商店：下載失敗（${lastError}），${delay} 分鐘後自動重試${cached ? '，目前繼續使用舊資料' : ''}`);
+    schedule(log, delay);
   }
 }
 

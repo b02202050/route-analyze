@@ -1,3 +1,5 @@
+// 必須最先載入：對外連線的 IPv4／逾時設定
+import './network';
 import fastifyStatic from '@fastify/static';
 import Fastify from 'fastify';
 import { existsSync } from 'node:fs';

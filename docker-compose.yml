@@ -15,7 +15,11 @@ services:
       BROUTER_URL: http://brouter:17777
     volumes:
       # 便利商店資料快取（避免每次重建都重新下載）
-      - ./server/data:/app/server/data
+      # 使用具名 volume：會自動繼承映像檔中的目錄權限（容器以非 root 的 node 使用者執行）
+      - app-data:/app/server/data
     depends_on:
       - brouter
     restart: unless-stopped
+
+volumes:
+  app-data:
