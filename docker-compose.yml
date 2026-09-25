@@ -1,3 +1,11 @@
+# log 大小限制：每個容器最多保留 3 個 10 MB 的檔案（上限 30 MB），避免長期運作塞滿 SD 卡
+# BRouter 每次路徑運算都會寫一行 log，不設限會持續增長
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   brouter:
     build: ./brouter
@@ -6,6 +14,7 @@ services:
     volumes:
       - ./brouter/segments:/segments
     restart: unless-stopped
+    logging: *default-logging
 
   app:
     build: .
@@ -20,6 +29,7 @@ services:
     depends_on:
       - brouter
     restart: unless-stopped
+    logging: *default-logging
 
 volumes:
   app-data:
