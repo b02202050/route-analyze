@@ -28,8 +28,11 @@ COPY shared shared
 COPY brouter/profiles/running.brf brouter/profiles/running.brf
 COPY --from=build /app/web/dist web/dist
 
-# 便利商店資料快取目錄（以非 root 使用者執行）
-RUN mkdir -p server/data && chown node:node server/data
+# COPY 會保留原始檔案權限；若從權限較嚴格的位置建置（例如 rclone 掛載的 OneDrive，檔案為 600），
+# 非 root 的 node 使用者會讀不到。統一設為所有人可讀（node_modules 由 npm ci 建立，權限本來就正確）。
+# 便利商店資料快取目錄則交給 node 使用者。
+RUN chmod -R a+rX package.json package-lock.json server web shared brouter \
+ && mkdir -p server/data && chown node:node server/data
 USER node
 
 EXPOSE 8787

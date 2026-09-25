@@ -6,7 +6,8 @@ for seg in $SEGMENTS; do
   f="/segments/${seg}.rd5"
   if [ ! -s "$f" ]; then
     echo "下載路網資料 ${seg}.rd5 ..."
-    curl -fL --retry 3 -o "${f}.tmp" "${SEGMENTS_URL}/${seg}.rd5"
+    # -4：只查 IPv4，避免部分路由器 DNS 同時查詢 A／AAAA 時逾時
+    curl -4 -fL --retry 5 --retry-all-errors --retry-delay 5 -o "${f}.tmp" "${SEGMENTS_URL}/${seg}.rd5"
     mv "${f}.tmp" "$f"
   fi
 done

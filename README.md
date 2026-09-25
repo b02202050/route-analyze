@@ -74,6 +74,139 @@ docker compose up -d --build
 - **Log 大小：** `docker-compose.yml` 已限制每個容器的 log 最多 3 個 10 MB 檔案，兩個容器合計上限 60 MB，長期運作也不會塞滿 SD 卡。
 - **舊資料夾：** 由舊版升級時，舊的 `server/data/` 資料夾已經不再使用，可以刪除。便利商店資料會重新下載到 volume。
 
+## 部署到樹莓派（24 小時運作）
+
+以下以**樹莓派 4／5＋64 位元 Ubuntu** 為例，透過 SSH 操作。每個步驟都標明要在哪台機器上執行。
+
+### 1. 確認環境（樹莓派）
+
+```bash
+uname -m      # 必須是 aarch64（64 位元）；armv7l 代表是 32 位元系統，映像檔無法使用
+free -h       # 記憶體建議 2 GB 以上
+df -h /       # 剩餘空間建議至少 3 GB
+hostname -I   # 樹莓派的區網 IP
+```
+
+### 2. 安裝 Docker（樹莓派）
+
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo snap remove docker 2>/dev/null              # 如果裝過 snap 版就移除（有權限限制，容易出問題）
+curl -fsSL https://get.docker.com | sudo sh      # 官方安裝腳本，一併安裝 Compose
+sudo usermod -aG docker $USER                    # 之後不用 sudo 就能執行 docker
+```
+
+**登出再重新登入**，群組設定才會生效。然後確認安裝成功：
+
+```bash
+docker compose version
+docker run --rm hello-world
+```
+
+### 3. 設定 Docker 的 DNS（樹莓派，建議）
+
+家用路由器的 DNS（例如 `192.168.1.1`）常在容器內偶爾查詢逾時。讓 Docker 改用公用 DNS：
+
+```bash
+echo '{ "dns": ["168.95.1.1", "1.1.1.1"] }' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker
+```
+
+`168.95.1.1` 是 HiNet DNS。如果 `/etc/docker/daemon.json` 原本就有內容，請把 `"dns"` 加進去，不要整個覆蓋。
+
+這個設定只影響**執行中的容器**，**建置時不會套用**。所以建置時下載 BRouter 的 `curl` 已經加上 `-4`（只查 IPv4），避開部分路由器同時處理 IPv4／IPv6 查詢時會逾時的問題。
+
+### 4. 建置並啟動（樹莓派）
+
+```bash
+cd route_analyze                 # 樹莓派上的專案資料夾
+docker compose up -d --build     # 第一次約 5～10 分鐘
+docker compose ps                # 兩個容器都應為 running
+docker compose logs -f app       # 等到看到「測試路線規劃成功」與「便利商店：下載完成」，再按 Ctrl+C 離開
+```
+
+同一個區網內，可以用 `http://<樹莓派IP>:8787` 開啟。確認一切正常後，清掉建置暫存：
+
+```bash
+docker builder prune -f
+sudo apt clean
+```
+
+### 5. 開機自動啟動
+
+- **Docker 服務：** 用官方腳本安裝時，已經設定為開機啟動。可以用 `systemctl is-enabled docker` 確認，應該顯示 `enabled`。
+- **兩個容器：** 都設定了 `restart: unless-stopped`，Docker 啟動後會自動把它們帶起來。
+- **網路比容器晚就緒：** 如果開機時網路還沒好，便利商店資料會在 1、5、15、30、60 分鐘後自動重試下載。
+
+例外：手動執行 `docker compose stop` 或 `docker compose down` 之後，要再執行 `docker compose up -d`，重開機才會自動啟動。
+
+### 6. 從外面連線：Tailscale（免費、固定 HTTPS 網址）
+
+[Tailscale](https://tailscale.com/) 個人使用免費，會提供固定的 HTTPS 網址，樹莓派的路由器也不需要開放任何 port。有 HTTPS 之後，手機上的「使用目前位置（◎）」也能正常使用；用區網的 `http://` 網址時，瀏覽器會擋掉這個功能。
+
+**安裝（樹莓派）**：
+
+```bash
+curl -fsSL https://tailscale.com/install.sh | sh
+```
+
+如果腳本失敗，改用 apt 手動安裝：
+
+```bash
+. /etc/os-release
+curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.noarmor.gpg" \
+  | sudo tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${VERSION_CODENAME}.tailscale-keyring.list" \
+  | sudo tee /etc/apt/sources.list.d/tailscale.list
+sudo apt-get update && sudo apt-get install -y tailscale
+```
+
+**啟動與登入**：
+
+```bash
+sudo systemctl enable --now tailscaled   # 開機自動啟動
+sudo tailscale up                        # 依照畫面上的網址用瀏覽器登入
+```
+
+**選擇連線方式**（擇一）：
+
+```bash
+# A. 只有你登入 Tailscale 的裝置能連（建議）
+sudo tailscale serve --bg 8787
+
+# B. 任何人都能用瀏覽器開啟（公開網址，沒有登入保護，請勿外流）
+sudo tailscale funnel --bg 8787
+```
+
+```bash
+tailscale serve status    # 顯示網址：https://<主機名稱>.<你的tailnet>.ts.net
+```
+
+- **設定會保留：** `--bg` 會記住設定，重開機後 `tailscaled` 會自動恢復，不需要重新設定。
+- **第一次執行：** 可能會顯示一個網址，要你到 Tailscale 後台啟用 HTTPS 憑證（Funnel 還要另外啟用 Funnel）。啟用後再執行一次同樣的指令。
+- **使用方式 A 時：** 手機和電腦都要安裝 Tailscale App，並登入同一個帳號。
+- **停止對外連線：** `sudo tailscale serve reset`，會同時清除 serve 和 funnel 的設定。
+
+### 7. 日後更新與維護
+
+| 要做什麼 | 指令（都在樹莓派的專案資料夾執行） |
+|---|---|
+| 更新程式碼 | 程式碼更新後，執行 `docker compose up -d --build`，完成後可以再執行 `docker builder prune -f` |
+| 更新路網資料 | `rm brouter/segments/*.rd5 && docker compose restart brouter` |
+| 看資源使用量 | `docker stats`、`docker system df` |
+| 驗證重開機 | `sudo reboot`，1～2 分鐘後執行 `docker compose ps` 和 `tailscale serve status` |
+
+### 樹莓派常見問題
+
+- **建置時出現 `Could not resolve host`：** 容器內的 DNS 查詢逾時。請確認已完成第 3 步。建置 BRouter 仍然失敗時，可以改用主機網路建置：`docker build --network host -t route_analyze-brouter ./brouter`，再執行 `docker compose up -d`。
+- **建置時出現 `snapshot ... does not exist: not found`：** Docker 的建置快取損壞，常見原因是建置途中重啟了 Docker。先試 `docker compose build --no-cache app`。還是失敗的話，執行：
+  ```bash
+  sudo systemctl stop docker docker.socket
+  sudo rm -rf /var/lib/docker/buildkit     # 只清建置快取，不影響映像檔、容器和 volume
+  sudo systemctl start docker
+  ```
+- **app 啟動時出現 `EACCES: permission denied`：** 原始檔案的權限太嚴格，常見於從 rclone 掛載的資料夾建置。目前的 Dockerfile 已經會自動修正權限；如果看到這個錯誤，請確認用的是最新的程式碼，並重新建置。
+
 ## 開發模式（前後端熱更新）
 
 需要：Node.js 20 以上（建議 22）。

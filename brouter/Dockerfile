@@ -1,9 +1,11 @@
 # ---- 第一階段：下載並解壓 BRouter（unzip 等工具只存在這一層）----
+# curl -4：只查 IPv4 位址。Alpine（musl）預設同時送出 A／AAAA 查詢，
+# 部分家用路由器的 DNS 會丟掉其中一個而逾時（建置容器不會套用 daemon.json 的 dns 設定）
 # 只保留 jar 與 lookups.dat；路跑 profile 由 API server 上傳，其他內建 profile 用不到
 FROM alpine:3.20 AS fetch
 ARG BROUTER_VERSION=1.7.10
 RUN apk add --no-cache curl unzip \
- && curl -fsSL -o /tmp/brouter.zip \
+ && curl -4 -fsSL --retry 5 --retry-all-errors --retry-delay 5 -o /tmp/brouter.zip \
       "https://github.com/abrensch/brouter/releases/download/v${BROUTER_VERSION}/brouter-${BROUTER_VERSION}.zip" \
  && unzip -q /tmp/brouter.zip -d /tmp/b \
  && mkdir -p /out/profiles/customprofiles \
