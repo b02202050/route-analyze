@@ -74,10 +74,15 @@ app.post('/api/routes', async (req, reply) => {
 const importSchema = z.object({
   name: z.string().max(200),
   points: z
-    .array(z.tuple([z.number().min(b.minLng).max(b.maxLng), z.number().min(b.minLat).max(b.maxLat)]))
+    .array(
+      z
+        .tuple([z.number().min(b.minLng).max(b.maxLng), z.number().min(b.minLat).max(b.maxLat)])
+        .rest(z.number()), // 第三個值 = 高度（可省略）
+    )
     .min(2)
     .max(5000),
   source: z.enum(['track', 'route']),
+  timed: z.boolean().optional(),
 });
 
 app.post('/api/import', async (req, reply) => {

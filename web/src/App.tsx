@@ -207,8 +207,8 @@ export default function App() {
     setError(null);
     setWarnings([]);
     try {
-      const { name, points, source } = parseGpx(await file.text(), file.name);
-      const res = await importTrack({ name, points, source });
+      const { name, points, source, timed } = parseGpx(await file.text(), file.name);
+      const res = await importTrack({ name, points, source, timed });
       setRoutes((rs) => [res.route, ...rs]);
       setSelectedId(res.route.id);
       setWarnings(res.warnings);

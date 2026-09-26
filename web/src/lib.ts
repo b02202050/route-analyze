@@ -1,4 +1,6 @@
-import type { LatLng, RouteResult, StoreBrand } from '../../shared/types';
+import type { ImportRequest, LatLng, RouteResult, StoreBrand } from '../../shared/types';
+
+type ImportPoint = ImportRequest['points'][number];
 
 export const ROUTE_COLORS = ['#e8553d', '#2b7bd6', '#8b4fd8', '#159a6a', '#d18a00'];
 export const ROUTE_NAMES = ['A', 'B', 'C', 'D', 'E'];
@@ -13,13 +15,13 @@ export const KIND_LABEL: Record<RouteResult['kind'], string> = {
 export const IMPORTED_COLOR = '#374151';
 
 /**
- * 解析 GPX（trk/trkpt，沒有則用 rte/rtept），回傳 [lng, lat] 陣列。
+ * 解析 GPX（trk/trkpt，沒有則用 rte/rtept），回傳 [lng, lat] 或 [lng, lat, ele] 陣列。
  * 相鄰點距離 < 10 m 的略過，並限制最多 5000 點（上傳大小與比對時間）。
  */
 export function parseGpx(
   text: string,
   fileName: string,
-): { name: string; points: [number, number][]; source: 'track' | 'route' } {
+): { name: string; points: ImportPoint[]; source: 'track' | 'route'; timed: boolean } {
   const doc = new DOMParser().parseFromString(text, 'application/xml');
   if (doc.getElementsByTagName('parsererror').length) throw new Error('無法解析 GPX 檔（不是有效的 XML）');
   let nodes = Array.from(doc.getElementsByTagNameNS('*', 'trkpt'));
@@ -30,13 +32,21 @@ export function parseGpx(
   }
   if (nodes.length < 2) throw new Error('GPX 檔中沒有軌跡（trkpt）或路線（rtept）');
 
-  const raw: [number, number][] = [];
+  const child = (n: Element, tag: string) => Array.from(n.children).find((c) => c.localName === tag);
+  // 有時間戳記 = 手錶／App 的實際紀錄；沒有 = 路線規劃軟體（如 RideWithGPS、Strava 路線）匯出
+  const timed = nodes.some((n) => child(n, 'time'));
+  // 本站匯出的高度就是伺服器的 DEM 高度：不帶過去，讓伺服器用同一套方式計算，匯出再匯入數字不變
+  const ownExport = doc.documentElement.getAttribute('creator') === 'route-analyze';
+  const raw: ImportPoint[] = [];
   for (const n of nodes) {
     const lat = Number(n.getAttribute('lat'));
     const lng = Number(n.getAttribute('lon'));
-    if (Number.isFinite(lat) && Number.isFinite(lng)) raw.push([lng, lat]);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+    const eleText = ownExport ? undefined : child(n, 'ele')?.textContent?.trim();
+    const ele = eleText ? Number(eleText) : NaN;
+    raw.push(Number.isFinite(ele) ? [lng, lat, ele] : [lng, lat]);
   }
-  const thinned: [number, number][] = [raw[0]];
+  const thinned: ImportPoint[] = [raw[0]];
   for (const p of raw.slice(1)) {
     const prev = thinned[thinned.length - 1];
     if (haversine(prev, p) >= 10) thinned.push(p);
@@ -53,7 +63,7 @@ export function parseGpx(
     childName(doc.getElementsByTagNameNS('*', source === 'track' ? 'trk' : 'rte')[0]) ??
     childName(doc.getElementsByTagNameNS('*', 'metadata')[0]);
   const name = nameEl?.textContent?.trim() || fileName.replace(/\.gpx$/i, '');
-  return { name, points, source };
+  return { name, points, source, timed };
 }
 
 export const CATEGORY_LABEL = {
@@ -115,7 +125,7 @@ export function fmtDuration(sec: number): string {
   return h ? `${h}:${mm}:${String(s).padStart(2, '0')}` : `${mm}:${String(s).padStart(2, '0')}`;
 }
 
-function haversine(a: [number, number], b: [number, number]): number {
+function haversine(a: readonly number[], b: readonly number[]): number {
   const R = 6371008.8;
   const r = Math.PI / 180;
   const dLat = (b[1] - a[1]) * r;

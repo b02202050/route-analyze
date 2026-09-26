@@ -103,10 +103,12 @@ export interface GenerateResponse {
 
 export interface ImportRequest {
   name: string;
-  /** GPX 軌跡點 [lng, lat]（前端已先降到 ≤ 5000 點） */
-  points: [number, number][];
-  /** track = 實際紀錄（trkpt，點密、有 GPS 飄移）；route = 規劃路線（rtept，點稀疏） */
+  /** GPX 軌跡點 [lng, lat] 或 [lng, lat, ele]（前端已先降到 ≤ 5000 點） */
+  points: ([number, number] | [number, number, number])[];
+  /** track = 軌跡（trkpt）；route = 規劃路線（rtept，點稀疏） */
   source: 'track' | 'route';
+  /** 軌跡點是否帶時間：有 = 實際跑步紀錄（有 GPS 飄移）；沒有 = 路線規劃軟體匯出的軌跡 */
+  timed?: boolean;
 }
 
 export interface ImportResponse {

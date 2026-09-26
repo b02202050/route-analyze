@@ -9,10 +9,18 @@ import { haversine, PointGrid, resample, type Sample } from './geo';
  * DEM（SRTM 90m）有雜訊，直接累加會高估，所以：
  * 1) 每 step 公尺重新取樣  2) 移動平均平滑  3) 遲滯門檻（小於 threshold 的起伏不計）
  */
-export function computeElevation(
-  coords: [number, number, number][],
-  opts = { step: 20, window: 5, threshold: 2 },
-) {
+export interface ElevationOptions {
+  step: number;
+  window: number;
+  threshold: number;
+}
+
+/** 預設值針對 SRTM 90m 的雜訊 */
+export const DEM_ELEVATION: ElevationOptions = { step: 20, window: 5, threshold: 2 };
+/** GPX 內建的高度（路線規劃軟體的高精度 DEM）較乾淨，只需輕度平滑，否則會把真實的小起伏抹掉 */
+export const GPX_ELEVATION: ElevationOptions = { step: 10, window: 3, threshold: 1 };
+
+export function computeElevation(coords: [number, number, number][], opts: ElevationOptions = DEM_ELEVATION) {
   const samples = resample(coords, opts.step);
   if (samples.length < 2) {
     const e = samples[0]?.ele ?? 0;
@@ -213,8 +221,8 @@ export function overlapRatio(
   return hit / sa.length;
 }
 
-export function routeMetrics(raw: RawRoute) {
-  const elev = computeElevation(raw.coordinates);
+export function routeMetrics(raw: RawRoute, elevOpts: ElevationOptions = DEM_ELEVATION) {
+  const elev = computeElevation(raw.coordinates, elevOpts);
   const signals = extractSignals(raw.messages);
   return {
     distanceM: raw.trackLength,
