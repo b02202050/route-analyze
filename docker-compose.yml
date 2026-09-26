@@ -12,7 +12,14 @@ services:
     ports:
       - "17777:17777"
     volumes:
-      - ./brouter/segments:/segments
+      # 專案放在網路硬碟（rclone / RaiDrive）時，開機若還沒掛載好，
+      # 簡寫方式會讓 Docker 在空的掛載點底下自動建資料夾，導致之後掛載失敗；
+      # 關閉 create_host_path：路徑不存在時只會讓 brouter 啟動失敗，不會弄髒掛載點
+      - type: bind
+        source: ./brouter/segments
+        target: /segments
+        bind:
+          create_host_path: false
     restart: unless-stopped
     logging: *default-logging
 

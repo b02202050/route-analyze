@@ -140,6 +140,40 @@ sudo apt clean
 
 例外：手動執行 `docker compose stop` 或 `docker compose down` 之後，要再執行 `docker compose up -d`，重開機才會自動啟動。
 
+#### 專案放在網路硬碟時（例如 RaiDrive 掛載的 `/mnt/onedrive`）
+
+開機時 Docker 可能比網路硬碟早啟動。舊版的 compose 設定會讓 Docker 在「還沒掛載的空資料夾」底下自動建出專案路徑，接著網路硬碟因為掛載點不是空的而掛載失敗，`/mnt/onedrive` 就只剩專案那一串空資料夾。
+
+`docker-compose.yml` 已經設定 `create_host_path: false`，不會再建出空資料夾。另外要讓 Docker 等網路硬碟掛好才啟動：
+
+```bash
+sudo systemctl edit docker.service
+```
+
+在編輯器中加入以下內容（掛載服務名稱、掛載點依實際情況修改），存檔離開：
+
+```ini
+[Unit]
+Wants=raidrive.service
+After=raidrive.service
+
+[Service]
+# 掛載服務啟動後還要十幾秒才真正掛好：最多等 3 分鐘，逾時仍啟動 Docker（其他容器照常運作）
+ExecStartPre=/bin/sh -c 'for i in $(seq 1 180); do mountpoint -q /mnt/onedrive && exit 0; sleep 1; done; echo "/mnt/onedrive not mounted"; exit 0'
+TimeoutStartSec=300
+```
+
+套用：
+
+```bash
+sudo systemctl daemon-reload
+cd /mnt/onedrive/Desktop/code/route_analyze && docker compose up -d   # 讓新的 compose 設定生效
+sudo reboot
+```
+
+重開機後用 `journalctl -b -u docker | head` 確認 Docker 是在掛載完成後才啟動。
+
+如果已經發生掛載失敗：先 `sudo systemctl stop docker docker.socket raidrive`，確認 `mount | grep /mnt/onedrive` 沒有輸出、`sudo find /mnt/onedrive -type f` 也沒有任何檔案後，用 `sudo find /mnt/onedrive -mindepth 1 -depth -type d -empty -delete` 清掉空資料夾，再重開機。
 
 ### 6. 從外面連線：Tailscale（免費、固定 HTTPS 網址）
 
