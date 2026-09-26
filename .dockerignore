@@ -6,3 +6,4 @@ node_modules
 brouter/segments
 brouter/customprofiles
 server/data
+data

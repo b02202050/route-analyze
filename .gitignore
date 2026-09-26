@@ -7,3 +7,4 @@ brouter/customprofiles/
 cloudflared.log
 .ipynb_checkpoints/
 server/data/
+/data/
