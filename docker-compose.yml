@@ -9,6 +9,10 @@ x-logging: &default-logging
 services:
   brouter:
     build: ./brouter
+    environment:
+      # 路網檔超過幾天就檢查官方是否有新版（官方約每週更新；有新版才下載，約 34 MB）
+      # 開機 1 分鐘後在背景檢查、之後每天檢查；更新後 BRouter 自動重啟，中斷約數秒
+      SEGMENTS_MAX_AGE_DAYS: 7
     ports:
       - "17777:17777"
     volumes:
@@ -29,6 +33,8 @@ services:
       - "8787:8787"
     environment:
       BROUTER_URL: http://brouter:17777
+      # 便利商店資料超過幾天就重新下載（啟動時與之後每天檢查，背景進行，不影響使用）
+      STORES_MAX_AGE_DAYS: 30
     volumes:
       # 便利商店資料快取（避免每次重建都重新下載）
       # 使用具名 volume：會自動繼承映像檔中的目錄權限（容器以非 root 的 node 使用者執行）

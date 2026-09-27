@@ -41,7 +41,7 @@ API server (Node.js + Fastify)  ──►  BRouter（自架，Docker）  ← 台
 | **BRouter（自架）** | 路徑規劃、高度、號誌節點 | 沒有外部限制，只看本機效能 |
 | OpenFreeMap | 地圖底圖 | 免 key，沒有公告的上限 |
 | Nominatim | 地名搜尋 | 每秒 1 次（server 已節流並快取） |
-| Overpass | 便利商店資料 | 只在 server 第一次啟動（或資料超過 30 天）時下載一次全台資料 |
+| Overpass | 便利商店資料 | 只在 server 第一次啟動（或資料超過 30 天）時在背景下載一次全台資料 |
 
 產生一次路線大約需要 10～30 次路徑運算，全部在本機 BRouter 完成，通常 1～3 秒內回應。
 
@@ -227,7 +227,7 @@ tailscale serve status    # 顯示網址：https://<主機名稱>.<你的tailnet
 | 要做什麼 | 指令（都在樹莓派的專案資料夾執行） |
 |---|---|
 | 更新程式碼 | 程式碼更新後，執行 `docker compose up -d --build`，完成後可以再執行 `docker builder prune -f` |
-| 更新路網資料 | `rm brouter/segments/*.rd5 && docker compose restart brouter` |
+| 更新路網資料 | 會自動更新（見〈資料自動更新〉）；要立刻更新：`rm brouter/segments/*.rd5 && docker compose restart brouter` |
 | 看資源使用量 | `docker stats`、`docker system df` |
 | 驗證重開機 | `sudo reboot`，1～2 分鐘後執行 `docker compose ps` 和 `tailscale serve status` |
 
@@ -326,18 +326,28 @@ BRouter 容器：`JAVA_OPTS`（預設 `-Xmx768m -XX:+UseSerialGC`）、`MAX_THRE
 ## 便利商店資料
 
 - **來源：** OpenStreetMap 的 `shop=convenience`，全台約 1.2 萬間；已排除沒有賣水的「蝦皮店到店」取貨點。
-- **下載與快取：** API server 啟動時在背景下載一次，存到 `server/data/convenience-stores.json`，大約 1 分鐘，不影響路線規劃。之後直接讀檔，超過 30 天才會自動更新。Docker 模式下，資料存在具名 volume `app-data`，重建映像檔也會保留。
-- **下載失敗時：** Overpass 公開伺服器偶爾會忙碌。失敗時會沿用舊檔；如果還沒有任何資料，畫面會顯示提示，重啟 server 就會再試一次。
-- **強制更新：** 刪除 `server/data/convenience-stores.json` 後重啟 server。
+- **下載與快取：** API server 啟動時在背景下載一次，存到 `server/data/convenience-stores.json`，大約 1 分鐘，不影響路線規劃。之後直接讀檔，超過 30 天會自動在背景更新（見〈資料自動更新〉）。Docker 模式下，資料存在具名 volume `app-data`，重建映像檔也會保留。
+- **下載失敗時：** Overpass 公開伺服器偶爾會忙碌。失敗時會沿用舊檔，並在 1、5、15、30、60 分鐘後自動重試；如果還沒有任何資料，畫面會顯示提示。
+- **強制更新：** 開發模式刪除 `server/data/convenience-stores.json` 後重啟 server；Docker 模式執行 `docker compose exec app rm /app/server/data/convenience-stores.json && docker compose restart app`。
 
-## 更新路網資料
+## 資料自動更新
 
-brouter.de 每週更新 rd5 檔。要更新時：
+路網和便利商店資料都會自動保持更新，而且都在背景進行，不會拖慢開機或啟動。
 
-```bash
-rm brouter/segments/*.rd5
-docker compose restart brouter   # 啟動時會重新下載
-```
+| 資料 | 檢查時機 | 何時下載 | 更新時的影響 | 設定（`docker-compose.yml`） |
+|---|---|---|---|---|
+| 路網（`*.rd5`，約 34 MB） | 啟動 1 分鐘後，之後每天 | 本地檔超過 7 天，**且** brouter.de 有較新版本（官方約每週更新） | 下載完 BRouter 自動重啟，中斷約數秒 | `SEGMENTS_MAX_AGE_DAYS: 7` |
+| 便利商店（Overpass，約 1 分鐘） | 啟動時，之後每天 | 本地資料超過 30 天 | 無，下載完直接換新 | `STORES_MAX_AGE_DAYS: 30` |
+
+- **下載失敗：** 繼續使用舊資料。路網隔天再試；便利商店在 1、5、15、30、60 分鐘後重試。
+- **調整天數：** 修改 `docker-compose.yml` 的數字後執行 `docker compose up -d`。路網設成 `0` 等於每次啟動都向官方確認（沒有新版不會下載）；便利商店建議維持 30 天，避免增加 Overpass 公開伺服器的負擔。
+- **查看紀錄：** `docker compose logs brouter | grep 路網`、`docker compose logs app | grep 便利商店`。
+- **立刻更新路網：**
+
+  ```bash
+  rm brouter/segments/*.rd5
+  docker compose restart brouter   # 啟動時會重新下載（需要等下載完才能規劃路線）
+  ```
 
 ## 演算法說明
 

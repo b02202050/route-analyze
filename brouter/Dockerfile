@@ -15,7 +15,7 @@ RUN apk add --no-cache curl unzip \
 # ---- 第二階段：精簡的 Java 21 執行環境（Alpine，支援 ARM64／樹莓派）----
 # BRouter 以 Java 11 編譯，只用到 java.base 的基本 API，可在 Java 21 執行
 FROM eclipse-temurin:21-jre-alpine
-# curl 用於第一次啟動時下載路網資料
+# curl 用於下載與更新路網資料
 RUN apk add --no-cache curl
 WORKDIR /brouter
 COPY --from=fetch /out/ /brouter/
@@ -26,8 +26,10 @@ RUN sed -i 's/\r$//' /entrypoint.sh && chmod +x /entrypoint.sh && mkdir -p /segm
 
 # E120_N20 + E120_N25 兩個 5°×5° 分區即涵蓋全台灣（含桃園）
 # SerialGC：單人使用時記憶體負擔最小，適合樹莓派等小型主機
+# SEGMENTS_MAX_AGE_DAYS：本地路網檔超過幾天才檢查是否有新版（官方約每週更新）
 ENV SEGMENTS="E120_N20 E120_N25" \
     SEGMENTS_URL="https://brouter.de/brouter/segments4" \
+    SEGMENTS_MAX_AGE_DAYS=7 \
     JAVA_OPTS="-Xmx768m -XX:+UseSerialGC" \
     MAX_THREADS=4
 
