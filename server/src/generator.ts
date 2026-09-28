@@ -30,16 +30,32 @@ interface Candidate {
 }
 
 const TARGET_TOLERANCE = 0.03;
-const MAX_ITERATIONS = 4;
-const TARGET_CANDIDATES = 8;
-const SHORTEST_RANDOM_CANDIDATES = 5;
 const SNAP_LIMIT_M = 300;
-/** 環狀路線：第一輪隨機、第二輪（錨定好路段＋變化）候選數 */
-const LOOP_ROUND1 = 8;
-const LOOP_ROUND2 = 8;
-/** 自訂爬升時，第二輪由最接近目標的幾條候選變化出來的數量 */
-const CLIMB_REFINE_PARENTS = 3;
-const CLIMB_REFINE_CANDIDATES = 8;
+/** 精修時由目前最好的幾條候選變化 */
+const REFINE_PARENTS = 3;
+
+/**
+ * 努力程度 1～5：越高候選越多、長度調整次數越多、精修輪數越多，
+ * 越可能找到符合條件的路線，但路徑運算次數（時間）也越多。3 = 預設。
+ * - candidates：每一輪的候選數
+ * - iterations：指定距離時，每條候選調整長度的最多次數（環狀路線每次需 2 次路徑運算）
+ * - extraRounds：額外的精修輪數（由目前最好的候選變化出新候選）
+ */
+interface Effort {
+  candidates: number;
+  iterations: number;
+  loopIterations: number;
+  shortestRandom: number;
+  extraRounds: number;
+}
+const EFFORTS: Record<number, Effort> = {
+  1: { candidates: 4, iterations: 3, loopIterations: 2, shortestRandom: 3, extraRounds: 0 },
+  2: { candidates: 6, iterations: 4, loopIterations: 3, shortestRandom: 4, extraRounds: 0 },
+  3: { candidates: 8, iterations: 4, loopIterations: 3, shortestRandom: 5, extraRounds: 0 },
+  4: { candidates: 10, iterations: 5, loopIterations: 4, shortestRandom: 8, extraRounds: 1 },
+  5: { candidates: 12, iterations: 6, loopIterations: 4, shortestRandom: 12, extraRounds: 2 },
+};
+export const DEFAULT_EFFORT = 3;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -52,6 +68,7 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
   const count = clamp(req.count ?? 3, 1, 5);
   const warnings: string[] = [];
   const exclude = req.exclude ?? [];
+  const effort = EFFORTS[clamp(Math.round(req.effort ?? DEFAULT_EFFORT), 1, 5)];
 
   if (!req.loop && !req.end) throw new UserError('請設定終點，或勾選「環狀路線」');
   const anchors: LatLng[] = [req.start, ...req.waypoints, req.loop ? req.start : req.end!];
@@ -84,7 +101,7 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
         `指定距離 ${(targetM / 1000).toFixed(1)} km 短於最短路徑 ${(base!.m.distanceM / 1000).toFixed(2)} km，已改為最短路徑模式`,
       );
     }
-    candidates = await shortestCandidates(anchors, base!, rng, doRoute, evaluate);
+    candidates = await shortestCandidates(anchors, base!, effort, rng, doRoute, evaluate);
     // 自訂爬升且所有候選都爬太多：改用「減少爬升」的 profile 再規劃一次
     if (climbTarget !== null && Math.min(...candidates.map((c) => c.m.ascentM)) > climbTarget * 1.25 + 5) {
       const flatter = await Promise.all(
@@ -104,8 +121,8 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
     }
   } else {
     candidates = pureLoop
-      ? await freeLoopCandidates(req.start, targetM, req.prefs, climbTarget, rng, doRoute, evaluate)
-      : await targetCandidates(anchors, base, targetM, pureLoop, climbTarget, rng, doRoute, evaluate);
+      ? await freeLoopCandidates(req.start, targetM, req.prefs, climbTarget, effort, rng, doRoute, evaluate)
+      : await targetCandidates(anchors, base, targetM, req.prefs, climbTarget, effort, rng, doRoute, evaluate);
     if (candidates.length === 0) {
       throw new UserError('無法產生符合條件的路線，請換個起點或調整距離');
     }
@@ -188,6 +205,7 @@ function checkSnapping(raw: RawRoute, req: GenerateRequest) {
 async function shortestCandidates(
   anchors: LatLng[],
   base: Candidate,
+  effort: Effort,
   rng: Rng,
   doRoute: RouteFn,
   evaluate: (raw: RawRoute, kind: Candidate['kind']) => Candidate,
@@ -205,7 +223,7 @@ async function shortestCandidates(
     .map((a, i) => ({ i, d: distLL(a, anchors[i + 1]) }))
     .filter((s) => s.d > 300);
   if (segIdx.length > 0) {
-    for (let n = 0; n < SHORTEST_RANDOM_CANDIDATES; n++) {
+    for (let n = 0; n < effort.shortestRandom; n++) {
       const seg = segIdx[randInt(rng, 0, segIdx.length - 1)];
       const A = anchors[seg.i];
       const B = anchors[seg.i + 1];
@@ -260,8 +278,9 @@ async function targetCandidates(
   anchors: LatLng[],
   base: Candidate | null,
   targetM: number,
-  pureLoop: boolean,
+  prefs: RoutePreferences,
   climbTarget: number | null,
+  effort: Effort,
   rng: Rng,
   doRoute: RouteFn,
   evaluate: (raw: RawRoute, kind: Candidate['kind']) => Candidate,
@@ -275,7 +294,7 @@ async function targetCandidates(
 
   // 事先以 rng 決定所有候選的形狀（確保同一種子可重現）
   const makeSpec = (): Spec => {
-    const weights = segD.map((d) => (pureLoop ? 1 : d + 200) * uniform(rng, 0.2, 1.8));
+    const weights = segD.map((d) => (d + 200) * uniform(rng, 0.2, 1.8));
     if (weights.length > 1) {
       for (let i = 0; i < weights.length; i++) if (rng() < 0.35) weights[i] = 0;
       if (weights.reduce((s, w) => s + w, 0) === 0) weights[randInt(rng, 0, weights.length - 1)] = 1;
@@ -320,7 +339,7 @@ async function targetCandidates(
     let lambda = 1;
     const history: [number, number][] = [[0, baseLen]];
     let best: { raw: RawRoute; err: number } | null = null;
-    for (let it = 0; it < MAX_ITERATIONS; it++) {
+    for (let it = 0; it < effort.iterations; it++) {
       let raw: RawRoute;
       try {
         raw = await doRoute(buildPoints(spec, lambda), 0, avoidClimb);
@@ -363,22 +382,28 @@ async function targetCandidates(
     return results.filter((r): r is { spec: Spec; c: Candidate } => r !== null);
   };
 
-  const round1 = await runAll(Array.from({ length: TARGET_CANDIDATES }, makeSpec), false);
+  const all = await runAll(Array.from({ length: effort.candidates }, makeSpec), false);
   // 全部失敗時把 BRouter 的真正錯誤往上丟，而不是只顯示籠統訊息
-  if (round1.length === 0 && errors.length > 0) throw errors[0];
+  if (all.length === 0 && errors.length > 0) throw errors[0];
+  if (all.length === 0) return [];
 
-  if (climbTarget === null || round1.length === 0) return round1.map((r) => r.c);
-
-  // 第二輪：從爬升最接近目標的候選變化出新候選；全部都爬太多時改用「減少爬升」profile
-  const climbErr = (c: Candidate) =>
-    Math.abs(c.m.ascentM - climbTarget) + (Math.abs(c.lengthError ?? 0) > 0.08 ? 1e6 : 0);
-  const parents = [...round1].sort((a, b) => climbErr(a.c) - climbErr(b.c)).slice(0, CLIMB_REFINE_PARENTS);
-  const tooMuchClimb = Math.min(...round1.map((r) => r.c.m.ascentM)) > climbTarget * 1.25 + 5;
-  const childSpecs = Array.from({ length: CLIMB_REFINE_CANDIDATES }, (_, i) =>
-    mutateSpec(parents[i % parents.length].spec),
-  );
-  const round2 = await runAll(childSpecs, tooMuchClimb);
-  return [...round1, ...round2].map((r) => r.c);
+  // 精修：從目前最好的候選變化出新候選。自訂爬升時固定多一輪，並以爬升誤差挑選；
+  // 全部都爬太多時改用「減少爬升」profile
+  const rounds = effort.extraRounds + (climbTarget !== null ? 1 : 0);
+  const rank =
+    climbTarget !== null
+      ? (c: Candidate) => Math.abs(c.m.ascentM - climbTarget) + (Math.abs(c.lengthError ?? 0) > 0.08 ? 1e6 : 0)
+      : (c: Candidate) => scoreTarget(c, prefs, null);
+  for (let round = 0; round < rounds; round++) {
+    const parents = [...all].sort((a, b) => rank(a.c) - rank(b.c)).slice(0, REFINE_PARENTS);
+    const tooMuchClimb =
+      climbTarget !== null && Math.min(...all.map((r) => r.c.m.ascentM)) > climbTarget * 1.25 + 5;
+    const childSpecs = Array.from({ length: effort.candidates }, (_, i) =>
+      mutateSpec(parents[i % parents.length].spec),
+    );
+    all.push(...(await runAll(childSpecs, tooMuchClimb)));
+  }
+  return all.map((r) => r.c);
 }
 
 function scoreTarget(c: Candidate, prefs: RoutePreferences, climbTarget: number | null): number {
@@ -412,7 +437,6 @@ type LoopSpec = LoopVia[];
 const RETURN_NOGO_WEIGHT = 500;
 /** 起點、折返點附近不加 nogo，否則回程無法離開／回到這兩點 */
 const RETURN_NOGO_TRIM_M = 150;
-const LOOP_MAX_ITERATIONS = 3;
 
 export function mergeRoutes(a: RawRoute, b: RawRoute): RawRoute {
   return {
@@ -442,6 +466,7 @@ async function freeLoopCandidates(
   targetM: number,
   prefs: RoutePreferences,
   climbTarget: number | null,
+  effort: Effort,
   rng: Rng,
   doRoute: RouteFn,
   evaluate: (raw: RawRoute, kind: Candidate['kind']) => Candidate,
@@ -505,7 +530,7 @@ async function freeLoopCandidates(
     let scale = initialScale(spec, factor);
     const history: [number, number][] = spec.some((v) => v.kind === 'fixed') ? [] : [[0, 0]];
     let best: { raw: RawRoute; err: number; scale: number } | null = null;
-    for (let it = 0; it < LOOP_MAX_ITERATIONS; it++) {
+    for (let it = 0; it < effort.loopIterations; it++) {
       let raw: RawRoute;
       try {
         raw = await trip(spec, scale, avoidClimb);
@@ -549,7 +574,7 @@ async function freeLoopCandidates(
   };
 
   // 第一輪：純隨機
-  const round1 = await runAll(Array.from({ length: LOOP_ROUND1 }, randomSpec), 1.5, false);
+  const round1 = await runAll(Array.from({ length: effort.candidates }, randomSpec), 1.5, false);
   if (round1.length === 0) {
     if (errors.length) throw errors[0];
     return [];
@@ -583,7 +608,7 @@ async function freeLoopCandidates(
     }
   }
   const anchoredSpecs: LoopSpec[] = [];
-  const nAnchored = pool.length ? Math.ceil(LOOP_ROUND2 / 2) : 0;
+  const nAnchored = pool.length ? Math.ceil(effort.candidates / 2) : 0;
   for (let i = 0; i < nAnchored; i++) {
     const at = pool[randInt(rng, 0, pool.length - 1)];
     const [x, y] = proj.toXY(at);
@@ -595,15 +620,22 @@ async function freeLoopCandidates(
   }
 
   // 第二輪之二：由目前最好的幾條變化
-  const parents = ranked.slice(0, 3);
-  const mutatedSpecs = Array.from({ length: LOOP_ROUND2 - nAnchored }, (_, i) =>
+  const parents = ranked.slice(0, REFINE_PARENTS);
+  const mutatedSpecs = Array.from({ length: effort.candidates - nAnchored }, (_, i) =>
     mutate(parents[i % parents.length].spec),
   );
 
-  const tooMuchClimb =
-    climbTarget !== null && Math.min(...round1.map((r) => r.c.m.ascentM)) > climbTarget * 1.25 + 5;
-  const round2 = await runAll([...anchoredSpecs, ...mutatedSpecs], factor, tooMuchClimb);
-  return [...round1, ...round2].map((r) => r.c);
+  const tooMuchClimb = (rs: typeof round1) =>
+    climbTarget !== null && Math.min(...rs.map((r) => r.c.m.ascentM)) > climbTarget * 1.25 + 5;
+  const all = [...round1, ...(await runAll([...anchoredSpecs, ...mutatedSpecs], factor, tooMuchClimb(round1)))];
+
+  // 額外精修：由目前分數最好的幾條再變化
+  for (let round = 0; round < effort.extraRounds; round++) {
+    const best = [...all].sort((a, b) => score(a.c) - score(b.c)).slice(0, REFINE_PARENTS);
+    const specs = Array.from({ length: effort.candidates }, (_, i) => mutate(best[i % best.length].spec));
+    all.push(...(await runAll(specs, factor, tooMuchClimb(all))));
+  }
+  return all.map((r) => r.c);
 }
 
 // ---------- 共用評分 ----------

@@ -29,6 +29,8 @@ export interface GenerateRequest {
   climb?: { targetM: number };
   /** 產生幾條新路線（預設 3） */
   count?: number;
+  /** 努力程度 1～5：越高找得越久、越可能符合條件（預設 3） */
+  effort?: number;
   /** 不指定則每次隨機 */
   seed?: number;
   /** 已鎖定的路線幾何（[lng, lat][]），新路線會盡量與之不同 */

@@ -6,6 +6,8 @@ export interface Options {
   km: number;
   climbMode: 'any' | 'target';
   climbM: number;
+  /** 努力程度 1～5 */
+  effort: number;
   prefs: RoutePreferences;
   pace: string;
 }
@@ -20,6 +22,8 @@ const PREF_ROWS: { key: 'sidewalk' | 'cycleway' | 'road'; label: string }[] = [
   { key: 'cycleway', label: '腳踏車道' },
   { key: 'road', label: '一般馬路' },
 ];
+
+const EFFORT_LABELS = ['', '最快', '較快', '平衡', '較仔細', '最仔細'];
 
 const PREF_CHOICES: { v: Preference; label: string }[] = [
   { v: 1, label: '偏好' },
@@ -136,6 +140,25 @@ export default function OptionsPanel({ options: o, onChange }: Props) {
             </div>
           </div>
         ))}
+      </div>
+
+      <div className="field">
+        <div className="field-label">
+          努力程度：{EFFORT_LABELS[o.effort]}
+        </div>
+        <div className="effort-row">
+          <span>快速</span>
+          <input
+            type="range"
+            min={1}
+            max={5}
+            step={1}
+            value={o.effort}
+            onChange={(e) => set({ effort: Number(e.target.value) })}
+          />
+          <span>精準</span>
+        </div>
+        <div className="hint">越往右嘗試越多候選路線，較能符合距離、爬升與偏好，但需要較久時間。</div>
       </div>
 
       <label className="field inline">

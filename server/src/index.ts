@@ -37,6 +37,7 @@ const generateSchema = z.object({
   ]),
   climb: z.object({ targetM: z.number().min(0).max(5000) }).optional(),
   count: z.number().int().min(1).max(5).optional(),
+  effort: z.number().int().min(1).max(5).optional(),
   seed: z.number().int().min(0).max(0xffffffff).optional(),
   exclude: z.array(z.array(z.tuple([z.number(), z.number()])).max(5000)).max(5).optional(),
 });

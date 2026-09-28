@@ -38,6 +38,7 @@ const DEFAULT_OPTIONS: Options = {
   km: 10,
   climbMode: 'any',
   climbM: 100,
+  effort: 3,
   prefs: { avoidSignals: true, sidewalk: 0, cycleway: 0, road: 0 },
   pace: '6:00',
 };
@@ -165,6 +166,7 @@ export default function App() {
         options.distanceMode === 'target' ? { mode: 'target', km: options.km } : { mode: 'shortest' },
       climb: options.climbMode === 'target' ? { targetM: options.climbM } : undefined,
       count: newCount,
+      effort: options.effort,
       exclude: lockedRoutes.map((r) => thinCoords(r.coordinates)),
     };
     try {

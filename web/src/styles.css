@@ -170,6 +170,8 @@ button.icon:hover:not(:disabled) { border-color: var(--border); color: var(--tex
 .field { margin: 12px 0 6px; }
 .field.inline { display: flex; align-items: center; gap: 8px; font-size: 13.5px; }
 .field-label { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+.effort-row { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--muted); }
+.effort-row input[type='range'] { flex: 1; min-width: 0; accent-color: var(--accent); }
 .field.inline .field-label { margin: 0; }
 .km-input { width: 72px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; }
 .pace-input { width: 60px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 5px; }
