@@ -22,6 +22,7 @@ export function buildProfile(prefs: ProfileOptions): string {
     pref_sidewalk: prefs.sidewalk,
     pref_cycleway: prefs.cycleway,
     pref_road: prefs.road,
+    pref_trail: prefs.trail,
   };
   let text = loadTemplate();
   for (const [name, value] of Object.entries(values)) {
@@ -33,5 +34,5 @@ export function buildProfile(prefs: ProfileOptions): string {
 }
 
 export function profileKey(prefs: ProfileOptions): string {
-  return `${prefs.avoidSignals ? 1 : 0}|${prefs.sidewalk}|${prefs.cycleway}|${prefs.road}|${prefs.avoidClimb ? 1 : 0}`;
+  return `${prefs.avoidSignals ? 1 : 0}|${prefs.sidewalk}|${prefs.cycleway}|${prefs.road}|${prefs.trail}|${prefs.avoidClimb ? 1 : 0}`;
 }

@@ -113,6 +113,13 @@ const FOOT_HIGHWAYS = new Set([
   'footway', 'pedestrian', 'path', 'steps', 'living_street', 'corridor', 'platform', 'track', 'bridleway',
 ]);
 
+/** BRouter 回傳的 surface 為 lookups.dat 的標準名稱 */
+const PAVED_SURFACES = new Set(['asphalt', 'paved', 'concrete', 'paving_stones', 'cobblestone', 'sett', 'wood', 'metal']);
+const UNPAVED_SURFACES = new Set([
+  'unpaved', 'gravel', 'ground', 'dirt', 'grass', 'compacted', 'sand', 'pebblestone', 'fine_gravel', 'earth', 'mud',
+  'clay', 'rock', 'stone',
+]);
+
 export function classifyWay(wayTags: string): WayCategory {
   const t = parseTags(wayTags);
   const hw = t.get('highway') ?? '';
@@ -121,6 +128,10 @@ export function classifyWay(wayTags: string): WayCategory {
     ((hw === 'path' || hw === 'footway') && t.get('bicycle') === 'designated') ||
     t.get('cycleway') === 'track';
   if (isCycle) return 'cycleway';
+  const surface = t.get('surface') ?? '';
+  const paved = PAVED_SURFACES.has(surface) || t.get('tracktype') === 'grade1';
+  if (['path', 'track', 'bridleway'].includes(hw) && !paved) return 'trail';
+  if (['footway', 'pedestrian', 'steps'].includes(hw) && UNPAVED_SURFACES.has(surface)) return 'trail';
   if (FOOT_HIGHWAYS.has(hw)) return 'sidewalk';
   const sw = t.get('sidewalk');
   if (sw && ['left', 'right', 'both', 'yes'].includes(sw)) return 'sidewalk';
@@ -132,7 +143,7 @@ export function classifyWay(wayTags: string): WayCategory {
 }
 
 export function computeBreakdown(messages: RouteMessage[]): Record<WayCategory, number> {
-  const out: Record<WayCategory, number> = { sidewalk: 0, cycleway: 0, road: 0 };
+  const out: Record<WayCategory, number> = { sidewalk: 0, cycleway: 0, trail: 0, road: 0 };
   for (const m of messages) out[classifyWay(m.wayTags)] += m.distance;
   return out;
 }

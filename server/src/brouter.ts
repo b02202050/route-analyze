@@ -148,7 +148,7 @@ export function parseGeoJson(text: string): RawRoute {
 
 /** 實際上傳 profile 並規劃一段桃園市區的短路線，回傳錯誤訊息（null 代表正常） */
 export async function brouterCheck(): Promise<string | null> {
-  const prefs: RoutePreferences = { avoidSignals: true, sidewalk: 0, cycleway: 0, road: 0 };
+  const prefs: RoutePreferences = { avoidSignals: true, sidewalk: 0, cycleway: 0, road: 0, trail: 0 };
   try {
     await route(
       [

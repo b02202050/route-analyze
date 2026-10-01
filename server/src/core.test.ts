@@ -79,6 +79,12 @@ test('classifyWay', () => {
   assert.equal(classifyWay('highway=residential sidewalk=both'), 'sidewalk');
   assert.equal(classifyWay('highway=primary sidewalk=no'), 'road');
   assert.equal(classifyWay('highway=service'), 'road');
+  assert.equal(classifyWay('highway=path'), 'trail');
+  assert.equal(classifyWay('highway=track tracktype=grade3'), 'trail');
+  assert.equal(classifyWay('highway=track tracktype=grade1'), 'sidewalk');
+  assert.equal(classifyWay('highway=path surface=asphalt'), 'sidewalk');
+  assert.equal(classifyWay('highway=footway surface=ground'), 'trail');
+  assert.equal(classifyWay('highway=footway surface=paving_stones'), 'sidewalk');
 });
 
 test('overlap: 來回折返與不同路線', () => {

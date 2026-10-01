@@ -69,12 +69,14 @@ export function parseGpx(
 export const CATEGORY_LABEL = {
   sidewalk: '人行道／步道',
   cycleway: '腳踏車道',
+  trail: '小徑／土路',
   road: '一般馬路',
 } as const;
 
 export const CATEGORY_COLOR = {
   sidewalk: '#16a34a',
   cycleway: '#f59e0b',
+  trail: '#8b5a2b',
   road: '#9aa0a6',
 } as const;
 
@@ -100,6 +102,7 @@ export interface LayerToggles {
   signals: boolean;
   sidewalk: boolean;
   cycleway: boolean;
+  trail: boolean;
   stores: boolean;
 }
 

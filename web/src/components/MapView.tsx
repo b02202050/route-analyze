@@ -265,7 +265,12 @@ export default function MapView(props: Props) {
     (map.getSource('way-overlay') as GeoJSONSource).setData({
       type: 'FeatureCollection',
       features: (selected?.wayRuns ?? [])
-        .filter((run) => (run.category === 'sidewalk' && layers.sidewalk) || (run.category === 'cycleway' && layers.cycleway))
+        .filter(
+          (run) =>
+            (run.category === 'sidewalk' && layers.sidewalk) ||
+            (run.category === 'cycleway' && layers.cycleway) ||
+            (run.category === 'trail' && layers.trail),
+        )
         .map((run) => ({
           type: 'Feature',
           properties: { color: CATEGORY_COLOR[run.category] },

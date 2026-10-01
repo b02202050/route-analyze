@@ -137,10 +137,11 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
   if (process.env.DEBUG_GEN) {
     for (const c of candidates) {
       const b = c.m.breakdown;
-      const tot = b.sidewalk + b.cycleway + b.road || 1;
+      const tot = b.sidewalk + b.cycleway + b.trail + b.road || 1;
       console.log(
         `${selected.includes(c) ? '*' : ' '} score ${c.score.toFixed(2)} len ${(c.m.distanceM / 1000).toFixed(2)} ` +
           `sw ${((b.sidewalk / tot) * 100).toFixed(0)}% cy ${((b.cycleway / tot) * 100).toFixed(0)}% ` +
+          `tr ${((b.trail / tot) * 100).toFixed(0)}% ` +
           `sig ${c.m.signals.length} ovl ${(c.m.selfOverlap * 100).toFixed(0)}% asc ${c.m.ascentM.toFixed(0)}`,
       );
     }
@@ -587,7 +588,7 @@ async function freeLoopCandidates(
   const ranked = [...round1].sort((a, b) => score(a.c) - score(b.c));
 
   // 第二輪之一：去程錨定在偏好路段上（取表現較好的路線中，長度 ≥ 150 m 的偏好路段中點）
-  const preferred = (['sidewalk', 'cycleway', 'road'] as const).filter((k) => prefs[k] === 1);
+  const preferred = (['sidewalk', 'cycleway', 'trail', 'road'] as const).filter((k) => prefs[k] === 1);
   const pool: LatLng[] = [];
   if (preferred.length) {
     for (const { c } of ranked.slice(0, 6)) {
@@ -654,8 +655,8 @@ function signalScore(c: Candidate, prefs: RoutePreferences): number {
 }
 
 function preferenceScore(b: Record<WayCategory, number>, prefs: RoutePreferences): number {
-  const total = b.sidewalk + b.cycleway + b.road || 1;
-  const cats: WayCategory[] = ['sidewalk', 'cycleway', 'road'];
+  const cats: WayCategory[] = ['sidewalk', 'cycleway', 'trail', 'road'];
+  const total = cats.reduce((s, c) => s + b[c], 0) || 1;
   let penalty = 0;
   let preferredShare = 0;
   let anyPreferred: boolean = false;

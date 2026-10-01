@@ -14,6 +14,8 @@ export interface RoutePreferences {
   sidewalk: Preference;
   cycleway: Preference;
   road: Preference;
+  /** 小徑／土路（山徑、未鋪面的 path、track） */
+  trail: Preference;
 }
 
 export type DistanceOption = { mode: 'shortest' } | { mode: 'target'; km: number };
@@ -37,7 +39,7 @@ export interface GenerateRequest {
   exclude?: [number, number][][];
 }
 
-export type WayCategory = 'sidewalk' | 'cycleway' | 'road';
+export type WayCategory = 'sidewalk' | 'cycleway' | 'trail' | 'road';
 
 export interface WayRun {
   category: WayCategory;

@@ -22,7 +22,7 @@ interface Props {
   onUseAsConditions: (r: RouteResult) => void;
 }
 
-const CATS: WayCategory[] = ['sidewalk', 'cycleway', 'road'];
+const CATS: WayCategory[] = ['sidewalk', 'cycleway', 'trail', 'road'];
 
 /** 沿路最長一段沒有便利商店的距離（m），含起點到第一間、最後一間到終點 */
 function longestGap(r: RouteResult): number {
@@ -38,7 +38,7 @@ export default function RouteCards(p: Props) {
   return (
     <div className="route-cards">
       {p.routes.map((r) => {
-        const total = CATS.reduce((s, c) => s + r.breakdown[c], 0) || 1;
+        const total = CATS.reduce((s, c) => s + (r.breakdown[c] ?? 0), 0) || 1;
         const selected = r.id === p.selectedId;
         const isLocked = p.locked.has(r.id);
         const km = r.distanceM / 1000;
@@ -144,7 +144,8 @@ export default function RouteCards(p: Props) {
               )}
             </div>
             <div className="breakdown-legend">
-              {CATS.map((c) => (
+              {/* 小徑在市區路線通常是 0，沒有時不顯示以免擁擠 */}
+              {CATS.filter((c) => c !== 'trail' || (r.breakdown.trail ?? 0) > 0).map((c) => (
                 <span key={c}>
                   <i style={{ background: CATEGORY_COLOR[c] }} />
                   {CATEGORY_LABEL[c]} {Math.round((r.breakdown[c] / total) * 100)}%

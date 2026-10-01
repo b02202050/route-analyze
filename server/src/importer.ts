@@ -11,7 +11,7 @@ import { storesAlongRoute } from './stores';
 // 才能算出紅綠燈、路型、便利商店，並與規劃出的路線用同一套方式比較。
 
 /** 比對用的中性偏好：不避紅綠燈、不偏好任何路型，盡量貼著原軌跡 */
-const NEUTRAL: RoutePreferences = { avoidSignals: false, sidewalk: 0, cycleway: 0, road: 0 };
+const NEUTRAL: RoutePreferences = { avoidSignals: false, sidewalk: 0, cycleway: 0, road: 0, trail: 0 };
 const MAX_VIAS = 600;
 const CHUNK = 40;
 

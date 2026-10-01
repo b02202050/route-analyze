@@ -17,9 +17,10 @@ interface Props {
   onChange: (o: Options) => void;
 }
 
-const PREF_ROWS: { key: 'sidewalk' | 'cycleway' | 'road'; label: string }[] = [
+const PREF_ROWS: { key: 'sidewalk' | 'cycleway' | 'trail' | 'road'; label: string }[] = [
   { key: 'sidewalk', label: '人行道／步道' },
   { key: 'cycleway', label: '腳踏車道' },
+  { key: 'trail', label: '小徑／土路' },
   { key: 'road', label: '一般馬路' },
 ];
 

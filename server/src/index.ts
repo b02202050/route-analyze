@@ -30,6 +30,7 @@ const generateSchema = z.object({
     sidewalk: pref,
     cycleway: pref,
     road: pref,
+    trail: pref.default(0),
   }),
   distance: z.discriminatedUnion('mode', [
     z.object({ mode: z.literal('shortest') }),

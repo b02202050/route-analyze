@@ -39,7 +39,7 @@ const DEFAULT_OPTIONS: Options = {
   climbMode: 'any',
   climbM: 100,
   effort: 3,
-  prefs: { avoidSignals: true, sidewalk: 0, cycleway: 0, road: 0 },
+  prefs: { avoidSignals: true, sidewalk: 0, cycleway: 0, road: 0, trail: 0 },
   pace: '6:00',
 };
 
@@ -47,15 +47,17 @@ export default function App() {
   const [start, setStart] = useState<LatLng | null>(() => loadSetting('start', null));
   const [end, setEnd] = useState<LatLng | null>(null);
   const [waypoints, setWaypoints] = useState<LatLng[]>([]);
-  const [options, setOptions] = useState<Options>(() => ({
-    ...DEFAULT_OPTIONS,
-    ...loadSetting<Partial<Options>>('options', {}),
-  }));
+  const [options, setOptions] = useState<Options>(() => {
+    const saved = loadSetting<Partial<Options>>('options', {});
+    // 偏好也要逐項合併：舊版存下的設定沒有後來新增的路型（例如小徑）
+    return { ...DEFAULT_OPTIONS, ...saved, prefs: { ...DEFAULT_OPTIONS.prefs, ...saved.prefs } };
+  });
   const [pickMode, setPickMode] = useState<PickMode>('start');
   const [layers, setLayers] = useState<LayerToggles>(() => ({
     signals: true,
     sidewalk: false,
     cycleway: false,
+    trail: false,
     stores: true,
     ...loadSetting<Partial<LayerToggles>>('layers', {}),
   }));
@@ -367,6 +369,7 @@ export default function App() {
                 { key: 'signals', label: '紅綠燈', color: SIGNAL_COLOR, dot: true, value: `${selected.signals.length} 處` },
                 { key: 'sidewalk', label: '人行道／步道', color: CATEGORY_COLOR.sidewalk, dot: false, value: `${fmtKm(selected.breakdown.sidewalk)} km` },
                 { key: 'cycleway', label: '腳踏車道', color: CATEGORY_COLOR.cycleway, dot: false, value: `${fmtKm(selected.breakdown.cycleway)} km` },
+                { key: 'trail', label: '小徑／土路', color: CATEGORY_COLOR.trail, dot: false, value: `${fmtKm(selected.breakdown.trail ?? 0)} km` },
                 { key: 'stores', label: '便利商店', color: STORE_COLOR.seven, dot: true, value: `${selected.stores.length} 間` },
               ] as const
             ).map((l) => (
