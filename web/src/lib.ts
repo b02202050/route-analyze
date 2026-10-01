@@ -2,8 +2,11 @@ import type { ImportRequest, LatLng, RouteResult, StoreBrand } from '../../share
 
 type ImportPoint = ImportRequest['points'][number];
 
-export const ROUTE_COLORS = ['#e8553d', '#2b7bd6', '#8b4fd8', '#159a6a', '#d18a00'];
-export const ROUTE_NAMES = ['A', 'B', 'C', 'D', 'E'];
+export const ROUTE_COLORS = [
+  '#e8553d', '#2b7bd6', '#8b4fd8', '#159a6a', '#d18a00',
+  '#d6338a', '#0e9bb5', '#6f8a00', '#a0522d', '#4b5fc4',
+];
+export const ROUTE_NAMES = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'];
 
 export const KIND_LABEL: Record<RouteResult['kind'], string> = {
   shortest: '最佳路徑',

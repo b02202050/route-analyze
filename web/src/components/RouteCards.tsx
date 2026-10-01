@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import type { RouteResult, WayCategory } from '../../../shared/types';
 import {
   CATEGORY_COLOR,
@@ -6,6 +7,8 @@ import {
   fmtDuration,
   fmtKm,
   KIND_LABEL,
+  loadSetting,
+  saveSetting,
 } from '../lib';
 
 interface Props {
@@ -32,12 +35,71 @@ function longestGap(r: RouteResult): number {
   return gap;
 }
 
+/** 人行道／步道 + 腳踏車道 佔全程的比例 */
+function footShare(r: RouteResult): number {
+  const total = CATS.reduce((s, c) => s + (r.breakdown[c] ?? 0), 0) || 1;
+  return ((r.breakdown.sidewalk ?? 0) + (r.breakdown.cycleway ?? 0)) / total;
+}
+
+type SortKey = 'default' | 'distance' | 'ascent' | 'signals' | 'footShare';
+
+/** asc = 預設由小到大 */
+const SORTS: Record<SortKey, { label: string; value: (r: RouteResult) => number; asc: boolean }> = {
+  default: { label: '產生順序', value: () => 0, asc: true },
+  distance: { label: '距離', value: (r) => r.distanceM, asc: true },
+  ascent: { label: '總爬升', value: (r) => r.ascentM, asc: true },
+  signals: { label: '紅綠燈', value: (r) => r.signals.length, asc: true },
+  footShare: { label: '人行道＋腳踏車道佔比', value: footShare, asc: false },
+};
+
 const fmtDiff = (d: number) => (d > 0 ? `+${d}` : d < 0 ? `${d}` : '±0');
 
 export default function RouteCards(p: Props) {
+  const [sort, setSort] = useState<{ key: SortKey; asc: boolean }>(() => {
+    const s = loadSetting<{ key?: string; asc?: boolean }>('sort', {});
+    return s.key && s.key in SORTS
+      ? { key: s.key as SortKey, asc: s.asc ?? SORTS[s.key as SortKey].asc }
+      : { key: 'default', asc: true };
+  });
+  useEffect(() => saveSetting('sort', sort), [sort]);
+
+  const spec = SORTS[sort.key];
+  // 只改變卡片顯示順序；路線名稱（A、B…）與顏色維持不變
+  const ordered =
+    sort.key === 'default'
+      ? p.routes
+      : [...p.routes].sort((a, b) => (spec.value(a) - spec.value(b)) * (sort.asc ? 1 : -1));
+
   return (
     <div className="route-cards">
-      {p.routes.map((r) => {
+      {p.routes.length > 1 && (
+        <div className="sort-bar">
+          <span>排序</span>
+          <select
+            value={sort.key}
+            onChange={(e) => {
+              const key = e.target.value as SortKey;
+              setSort({ key, asc: SORTS[key].asc });
+            }}
+          >
+            {(Object.keys(SORTS) as SortKey[]).map((k) => (
+              <option key={k} value={k}>
+                {SORTS[k].label}
+              </option>
+            ))}
+          </select>
+          {sort.key !== 'default' && (
+            <button
+              className="sort-dir"
+              title="切換由小到大／由大到小"
+              onClick={() => setSort((s) => ({ ...s, asc: !s.asc }))}
+            >
+              {sort.asc ? '由小到大 ↑' : '由大到小 ↓'}
+            </button>
+          )}
+        </div>
+      )}
+      {ordered.map((r) => {
         const total = CATS.reduce((s, c) => s + (r.breakdown[c] ?? 0), 0) || 1;
         const selected = r.id === p.selectedId;
         const isLocked = p.locked.has(r.id);

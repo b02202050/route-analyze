@@ -56,6 +56,8 @@ const EFFORTS: Record<number, Effort> = {
   5: { candidates: 12, iterations: 6, loopIterations: 4, shortestRandom: 12, extraRounds: 2 },
 };
 export const DEFAULT_EFFORT = 3;
+/** 一次最多產生幾條路線（含已鎖定的） */
+export const MAX_ROUTES = 10;
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -65,10 +67,17 @@ export async function generateRoutes(req: GenerateRequest): Promise<GenerateResp
   const rng = createRng(seed);
   const counter: CallCounter = { calls: 0 };
   const limit = createLimiter(config.routerConcurrency);
-  const count = clamp(req.count ?? 3, 1, 5);
+  const count = clamp(req.count ?? 3, 1, MAX_ROUTES);
   const warnings: string[] = [];
   const exclude = req.exclude ?? [];
-  const effort = EFFORTS[clamp(Math.round(req.effort ?? DEFAULT_EFFORT), 1, 5)];
+  // 要挑出的路線越多（含已鎖定的），候選也要越多，才湊得出彼此分散的路線
+  const want = count + exclude.length;
+  const level = EFFORTS[clamp(Math.round(req.effort ?? DEFAULT_EFFORT), 1, 5)];
+  const effort: Effort = {
+    ...level,
+    candidates: Math.max(level.candidates, Math.ceil(want * 1.5)),
+    shortestRandom: Math.max(level.shortestRandom, want * 2),
+  };
 
   if (!req.loop && !req.end) throw new UserError('請設定終點，或勾選「環狀路線」');
   const anchors: LatLng[] = [req.start, ...req.waypoints, req.loop ? req.start : req.end!];

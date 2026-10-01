@@ -8,6 +8,8 @@ export interface Options {
   climbM: number;
   /** 努力程度 1～5 */
   effort: number;
+  /** 一次產生幾條路線（含鎖定的），1～10 */
+  count: number;
   prefs: RoutePreferences;
   pace: string;
 }
@@ -142,6 +144,18 @@ export default function OptionsPanel({ options: o, onChange }: Props) {
           </div>
         ))}
       </div>
+
+      <label className="field inline">
+        <span className="field-label">路線數量</span>
+        <select value={o.count} onChange={(e) => set({ count: Number(e.target.value) })}>
+          {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+            <option key={n} value={n}>
+              {n} 條
+            </option>
+          ))}
+        </select>
+        <span>彼此分散</span>
+      </label>
 
       <div className="field">
         <div className="field-label">

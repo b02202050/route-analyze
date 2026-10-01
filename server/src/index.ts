@@ -37,10 +37,10 @@ const generateSchema = z.object({
     z.object({ mode: z.literal('target'), km: z.number().min(0.5).max(100) }),
   ]),
   climb: z.object({ targetM: z.number().min(0).max(5000) }).optional(),
-  count: z.number().int().min(1).max(5).optional(),
+  count: z.number().int().min(1).max(10).optional(),
   effort: z.number().int().min(1).max(5).optional(),
   seed: z.number().int().min(0).max(0xffffffff).optional(),
-  exclude: z.array(z.array(z.tuple([z.number(), z.number()])).max(5000)).max(5).optional(),
+  exclude: z.array(z.array(z.tuple([z.number(), z.number()])).max(5000)).max(10).optional(),
 });
 
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? 'info' }, bodyLimit: 5 * 1024 * 1024 });

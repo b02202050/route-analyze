@@ -23,8 +23,6 @@ import {
   thinCoords,
 } from './lib';
 
-const ROUTE_COUNT = 3;
-
 function distMeters(a: number[], b: number[]) {
   const r = Math.PI / 180;
   const x = (b[0] - a[0]) * r * Math.cos(((a[1] + b[1]) / 2) * r);
@@ -39,6 +37,7 @@ const DEFAULT_OPTIONS: Options = {
   climbMode: 'any',
   climbM: 100,
   effort: 3,
+  count: 3,
   prefs: { avoidSignals: true, sidewalk: 0, cycleway: 0, road: 0, trail: 0 },
   pace: '6:00',
 };
@@ -141,10 +140,10 @@ export default function App() {
     else setWaypoints((w) => w.map((x, i) => (i === index ? p : x)));
   };
 
-  // 匯入的路線不佔「3 條」名額，重新產生時一律保留
+  // 匯入的路線不佔路線數量名額，重新產生時一律保留
   const importedRoutes = routes.filter((r) => r.kind === 'imported');
   const lockedRoutes = routes.filter((r) => locked.has(r.id) && r.kind !== 'imported');
-  const newCount = ROUTE_COUNT - lockedRoutes.length;
+  const newCount = options.count - lockedRoutes.length;
 
   const canGenerate =
     !!start &&
@@ -310,7 +309,9 @@ export default function App() {
           />
           {!start && <div className="hint">先在地圖上點選起點，或用搜尋／目前位置。</div>}
           {start && !options.loop && !end && <div className="hint">請設定終點，或勾選「環狀路線」。</div>}
-          {newCount <= 0 && <div className="hint">三條路線都已鎖定，解除鎖定才能重新產生。</div>}
+          {newCount <= 0 && (
+            <div className="hint">鎖定的路線已達路線數量（{options.count} 條），請增加數量或解除鎖定。</div>
+          )}
           {stale && !loading && <div className="hint warn-text">條件已變更，按下「重新產生」套用。</div>}
           {error && <div className="alert error">{error}</div>}
           {warnings.map((w) => (

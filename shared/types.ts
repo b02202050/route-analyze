@@ -29,7 +29,7 @@ export interface GenerateRequest {
   distance: DistanceOption;
   /** 自訂總爬升（m）；不指定 = 不限。規劃時盡量接近即可 */
   climb?: { targetM: number };
-  /** 產生幾條新路線（預設 3） */
+  /** 產生幾條新路線（預設 3，最多 10） */
   count?: number;
   /** 努力程度 1～5：越高找得越久、越可能符合條件（預設 3） */
   effort?: number;
