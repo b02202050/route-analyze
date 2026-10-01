@@ -1,5 +1,6 @@
 {
   "name": "route-analyze",
+  "license": "MIT",
   "private": true,
   "version": "0.1.0",
   "description": "路跑路線規劃（桃園 / 台灣）",
