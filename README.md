@@ -21,8 +21,8 @@
 需要 [Docker](https://docs.docker.com/get-docker/)（含 Compose）。支援 x86_64 與 ARM64。
 
 ```bash
-git clone <repo-url> route_analyze
-cd route_analyze
+git clone https://github.com/b02202050/route-analyze.git
+cd route-analyze
 docker compose up -d --build
 ```
 
@@ -118,7 +118,7 @@ npm run dev                    # API（:8787）與前端（:5173），皆支援�
 ### 專案結構
 
 ```
-route_analyze/
+route-analyze/
 ├─ docker-compose.yml          # brouter + app
 ├─ Dockerfile                  # app（API + 前端）
 ├─ brouter/
